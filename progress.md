@@ -68,10 +68,10 @@
 - [x] In `src/db/schema.ts`, add `episodeCount: integer("episode_count").default(8).notNull()` to the `versions` table. — Added column after `analysisStatus`.
 - [x] In `src/lib/ai-orchestrator.ts`, update the `generateStoryArc` function signature to accept `episodeCount: number`. — Added third param with default of 8.
 - [x] Modify the internal logic and Zod schema of `generateStoryArc` so that it returns exactly `episodeCount` mock episode outlines instead of a hardcoded 8. — Array.from uses `episodeCount`, goals cycle via modulo for counts > 8.
-- [ ] **DB Migration**: Run `bun run db:push` to sync the new `episode_count` column to Postgres.
+- [x] **DB Migration**: Run `bun run db:push` to sync the new `episode_count` column to Postgres. — User confirmed migration successful.
 
 ## Phase 10: The Generation & Analysis Pipelines (Write APIs)
-- [ ] Implement `POST /api/generate-core`: Validate body (Zod, `episode_count` default 8, max 20), insert Project→Version (with `episodeCount`)→Episodes from AI placeholders, link activeVersionId.
-- [ ] Implement `POST /api/analyze-episode`: Fetch episode text, call sentiment + hooks placeholders, run math-engine, update episode JSONB.
-- [ ] Implement `POST /api/analyze-version` & `GET /api/status`: Set version to 'processing', analyze all episodes in background, aggregate into version_analysis, set 'complete'. Status endpoint returns analysisStatus.
-- [ ] Implement `POST /api/regenerate-episode`: Duplicate parent version + episodes (copy `episodeCount`), replace target episode via AI placeholder, queue analysis.
+- [x] Implement `POST /api/generate-core`: Validate body (Zod, `episode_count` default 8, max 20), insert Project→Version (with `episodeCount`)→Episodes from AI placeholders, link activeVersionId. — Full pipeline: generateStoryArc → sequential generateEpisodeScript with continuity chaining → transactional DB writes.
+- [x] Implement `POST /api/analyze-episode`: Fetch episode text, call sentiment + hooks placeholders, run math-engine, update episode JSONB. — Runs analyzeEpisodeSentiment + evaluateEpisodeHooks in parallel, applies detectRetentionRisks + suggestOptimizations, updates scriptSegments/hookAndCliffhangerMetrics/optimizationSuggestions.
+- [x] Implement `POST /api/analyze-version` & `GET /api/status`: Set version to 'processing', analyze all episodes in background, aggregate into version_analysis, set 'complete'. Status endpoint returns analysisStatus. — Background promise loop, aggregates engagement/cliffhanger/variance/radar_metrics, upserts version_analysis, sets complete/failed. Status endpoint validates UUID and returns analysisStatus.
+- [x] Implement `POST /api/regenerate-episode`: Duplicate parent version + episodes (copy `episodeCount`), replace target episode via AI placeholder, queue analysis. — Validates project/version/episode chain, calls generateEpisodeScript with instruction, transactional new version + duplicated episodes with target replaced, updates activeVersionId.

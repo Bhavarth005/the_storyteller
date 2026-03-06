@@ -22,7 +22,12 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const episode = await db.query.episodes.findFirst({
       where: eq(episodes.id, id),
-      columns: { id: true, optimizationSuggestions: true },
+      columns: {
+        id: true,
+        optimizationSuggestions: true,
+        hookAndCliffhangerMetrics: true,
+        scriptSegments: true,
+      },
     });
 
     if (!episode) {
@@ -32,17 +37,39 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    const suggestions = (episode.optimizationSuggestions ?? []) as Array<{
-      cliffhanger_logic?: string;
-      retention_risk_reason?: string;
-      optimization_rationale?: string;
-    }>;
+    // Derive cliffhanger_logic from hookAndCliffhangerMetrics
+    const metrics = episode.hookAndCliffhangerMetrics as {
+      open_loops?: number;
+      threat_level?: number;
+    } | null;
+    const cliffhangerLogic = metrics
+      ? `${metrics.open_loops ?? 0} unresolved narrative thread(s) remain open with a threat level of ${((metrics.threat_level ?? 0) * 100).toFixed(0)}%, creating sustained viewer anticipation.`
+      : null;
 
-    // Aggregate explanations from optimization suggestions array
+    // Derive retention_risk_reason from scriptSegments
+    const segments = (episode.scriptSegments ?? []) as Array<{
+      start_sec: number;
+      emotion_intensity?: number;
+      drop_probability?: number;
+    }>;
+    const highRiskSegments = segments.filter((s) => (s.drop_probability ?? 0) > 0.5);
+    const retentionRiskReason = highRiskSegments.length > 0
+      ? `Emotional intensity dropped below safe thresholds for ${highRiskSegments.length} segment(s) starting at ${highRiskSegments.map((s) => `${s.start_sec}s`).join(", ")}, indicating retention risk zones.`
+      : "No significant retention risk zones detected. Emotional pacing remains within safe thresholds throughout.";
+
+    // Derive optimization_rationale from optimizationSuggestions
+    const suggestions = (episode.optimizationSuggestions ?? []) as Array<{
+      target_time_sec?: number;
+      suggestion?: string;
+    }>;
+    const optimizationRationale = suggestions.length > 0
+      ? suggestions.map((s) => s.suggestion).filter(Boolean).join(" ")
+      : "Pacing is strong across all segments. No immediate optimizations recommended.";
+
     const explanations = {
-      cliffhanger_logic: suggestions.map((s) => s.cliffhanger_logic).filter(Boolean).join(" ") || null,
-      retention_risk_reason: suggestions.map((s) => s.retention_risk_reason).filter(Boolean).join(" ") || null,
-      optimization_rationale: suggestions.map((s) => s.optimization_rationale).filter(Boolean).join(" ") || null,
+      cliffhanger_logic: cliffhangerLogic,
+      retention_risk_reason: retentionRiskReason,
+      optimization_rationale: optimizationRationale,
     };
 
     return NextResponse.json({

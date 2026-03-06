@@ -43,7 +43,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"The Neon Detective\",\n  \"input_type\": \"idea\",\n  \"raw_story\": \"A cyberpunk detective discovers a body that looks exactly like him in a rain-soaked alley. The body wears his exact face, carries his wallet, and has a message tattooed on its arm: RUN.\"\n}"
+              "raw": "{\n  \"title\": \"The Neon Detective\",\n  \"input_type\": \"idea\",\n  \"raw_story\": \"A cyberpunk detective discovers a body that looks exactly like him in a rain-soaked alley. The body wears his exact face, carries his wallet, and has a message tattooed on its arm: RUN.\",\n  \"episode_count\": 5\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/generate-core",
@@ -624,7 +624,7 @@
     },
     {
       "name": "6. Error & Edge Cases",
-      "description": "Validation tests: invalid UUIDs, missing params, deleting active version.",
+      "description": "Validation tests: invalid UUIDs, missing params, deleting active version, bad pipeline inputs.",
       "item": [
         {
           "name": "GET /api/projects/:id (invalid UUID)",
@@ -739,6 +739,175 @@
               "raw": "{{baseUrl}}/api/rollback",
               "host": ["{{baseUrl}}"],
               "path": ["api", "rollback"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/generate-core (episode_count exceeds max)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Has error code', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_BODY'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Over-limit Test\",\n  \"input_type\": \"idea\",\n  \"raw_story\": \"A test story.\",\n  \"episode_count\": 99\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/generate-core",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "generate-core"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/analyze-episode (invalid UUID)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Has error code', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_BODY'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"episode_id\": \"not-a-uuid\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/analyze-episode",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analyze-episode"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/analyze-episode (non-existent episode)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Has error code', () => pm.expect(pm.response.json().error.code).to.eql('EPISODE_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"episode_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/analyze-episode",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analyze-episode"]
+            }
+          }
+        },
+        {
+          "name": "POST /api/analyze-version (non-existent version)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('Has error code', () => pm.expect(pm.response.json().error.code).to.eql('VERSION_NOT_FOUND'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"version_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/analyze-version",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "analyze-version"]
+            }
+          }
+        },
+        {
+          "name": "GET /api/status (invalid UUID)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Has error code', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_VERSION_ID'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/status?version_id=not-a-uuid",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "status"],
+              "query": [
+                { "key": "version_id", "value": "not-a-uuid" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /api/regenerate-episode (episode not in version)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));" 
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_id\": \"{{projectId}}\",\n  \"parent_version_id\": \"{{versionId}}\",\n  \"episode_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"instruction\": \"Make it scarier.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/regenerate-episode",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "regenerate-episode"]
             }
           }
         }
