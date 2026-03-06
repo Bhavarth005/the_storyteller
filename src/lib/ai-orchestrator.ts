@@ -106,7 +106,8 @@ export type ContinuityLedger = z.infer<typeof ContinuityLedgerSchema>;
  */
 export async function generateStoryArc(
   title: string,
-  rawStory: string
+  rawStory: string,
+  episodeCount: number = 8
 ): Promise<StoryArc> {
   const result: StoryArc = {
     global_characters: [
@@ -114,9 +115,8 @@ export async function generateStoryArc(
       { name: "Antagonist", description: "The primary opposing force", traits: ["cunning", "powerful"] },
       { name: "Ally", description: "A key supporting character", traits: ["loyal", "skilled"] },
     ],
-    episode_goals: Array.from({ length: 8 }, (_, i) => ({
-      episode_number: i + 1,
-      narrative_goal: [
+    episode_goals: Array.from({ length: episodeCount }, (_, i) => {
+      const goals = [
         "Introduce the primary mystery and main character",
         "Escalate the physical threat and introduce an ally",
         "Reveal a critical piece of hidden information",
@@ -125,8 +125,12 @@ export async function generateStoryArc(
         "A direct confrontation forces a difficult choice",
         "The stakes reach their peak with a devastating setback",
         "The final resolution with lasting consequences",
-      ][i],
-    })),
+      ];
+      return {
+        episode_number: i + 1,
+        narrative_goal: goals[i % goals.length] ?? `Episode ${i + 1}: Continue the narrative arc with rising tension`,
+      };
+    }),
   };
 
   StoryArcSchema.parse(result);

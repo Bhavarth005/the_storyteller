@@ -57,6 +57,7 @@ export const versions = pgTable(
     analysisStatus: analysisStatusEnum("analysis_status")
       .notNull()
       .default("pending"),
+    episodeCount: integer("episode_count").default(8).notNull(),
     generationMetadata: jsonb("generation_metadata"),
     globalCharacters: jsonb("global_characters"),
     createdAt: timestamp("created_at", { withTimezone: true })

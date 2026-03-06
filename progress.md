@@ -64,8 +64,14 @@
     5. `suggestOptimizations(segments)`: Returns mock text suggestions. — Scans for low-intensity zones, always returns ≥1 suggestion, validated via OptimizationCriticSchema.
 - [x] All functions return objects that pass their Zod schemas (.parse called inside each function).
 
+## Phase 9.5: The Dynamic Episode Pivot
+- [x] In `src/db/schema.ts`, add `episodeCount: integer("episode_count").default(8).notNull()` to the `versions` table. — Added column after `analysisStatus`.
+- [x] In `src/lib/ai-orchestrator.ts`, update the `generateStoryArc` function signature to accept `episodeCount: number`. — Added third param with default of 8.
+- [x] Modify the internal logic and Zod schema of `generateStoryArc` so that it returns exactly `episodeCount` mock episode outlines instead of a hardcoded 8. — Array.from uses `episodeCount`, goals cycle via modulo for counts > 8.
+- [ ] **DB Migration**: Run `bun run db:push` to sync the new `episode_count` column to Postgres.
+
 ## Phase 10: The Generation & Analysis Pipelines (Write APIs)
-- [ ] Implement `POST /api/generate-core`: Full pipeline — validate body, insert Project→Version→Episodes from AI placeholders, link activeVersionId.
+- [ ] Implement `POST /api/generate-core`: Validate body (Zod, `episode_count` default 8, max 20), insert Project→Version (with `episodeCount`)→Episodes from AI placeholders, link activeVersionId.
 - [ ] Implement `POST /api/analyze-episode`: Fetch episode text, call sentiment + hooks placeholders, run math-engine, update episode JSONB.
 - [ ] Implement `POST /api/analyze-version` & `GET /api/status`: Set version to 'processing', analyze all episodes in background, aggregate into version_analysis, set 'complete'. Status endpoint returns analysisStatus.
-- [ ] Implement `POST /api/regenerate-episode`: Duplicate parent version + episodes, replace target episode via AI placeholder, queue analysis.
+- [ ] Implement `POST /api/regenerate-episode`: Duplicate parent version + episodes (copy `episodeCount`), replace target episode via AI placeholder, queue analysis.
