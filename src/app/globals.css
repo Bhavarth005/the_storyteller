@@ -4,6 +4,16 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  /* Define custom variables here */
+  --color-background: #07080B;
+  --color-electric-cyan: #22d3ee;
+  --color-radiant-purple: #a855f7;
+  
+  /* You can also extend spacing or fonts here */
+  --font-serif: "Playfair Display", serif;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
