@@ -1,4 +1,6 @@
+import { generateObject } from "ai";
 import { z } from "zod/v4";
+import { fastModel, heavyModel } from "./ai-clients";
 
 // ─── Zod Schemas: AI JSON Contracts ──────────────────────────────────────────
 
@@ -98,43 +100,68 @@ export type HookCliffhanger = z.infer<typeof HookCliffhangerSchema>;
 export type OptimizationCritic = z.infer<typeof OptimizationCriticSchema>;
 export type ContinuityLedger = z.infer<typeof ContinuityLedgerSchema>;
 
+const WORDS_PER_SENTIMENT_CHUNK = 25;
+
+function buildWordChunks(text: string, wordsPerChunk: number = WORDS_PER_SENTIMENT_CHUNK) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) {
+    return [
+      {
+        text: "",
+        start_sec: 0,
+        end_sec: 10,
+      },
+    ];
+  }
+
+  const chunks: Array<{ text: string; start_sec: number; end_sec: number }> = [];
+  for (let i = 0; i < words.length; i += wordsPerChunk) {
+    const chunkIndex = chunks.length;
+    chunks.push({
+      text: words.slice(i, i + wordsPerChunk).join(" "),
+      start_sec: chunkIndex * 10,
+      end_sec: (chunkIndex + 1) * 10,
+    });
+  }
+  return chunks;
+}
+
+function takeWords(text: string, count: number, fromEnd: boolean = false) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (fromEnd) {
+    return words.slice(Math.max(words.length - count, 0)).join(" ");
+  }
+  return words.slice(0, count).join(" ");
+}
+
 // ─── Placeholder: Agent 0 — Story Arc Planner ───────────────────────────────
 
-/**
- * Generates global characters and episode goals from a story premise.
- * TODO: Replace with Heavy LLM call (gpt-4o / gemini-1.5-pro).
- */
 export async function generateStoryArc(
   title: string,
   rawStory: string,
   episodeCount: number = 8
 ): Promise<StoryArc> {
-  const result: StoryArc = {
-    global_characters: [
-      { name: "Protagonist", description: `The lead character of "${title}"`, traits: ["determined", "resourceful"] },
-      { name: "Antagonist", description: "The primary opposing force", traits: ["cunning", "powerful"] },
-      { name: "Ally", description: "A key supporting character", traits: ["loyal", "skilled"] },
-    ],
-    episode_goals: Array.from({ length: episodeCount }, (_, i) => {
-      const goals = [
-        "Introduce the primary mystery and main character",
-        "Escalate the physical threat and introduce an ally",
-        "Reveal a critical piece of hidden information",
-        "A betrayal fractures the protagonist's trust",
-        "The protagonist discovers the antagonist's true plan",
-        "A direct confrontation forces a difficult choice",
-        "The stakes reach their peak with a devastating setback",
-        "The final resolution with lasting consequences",
-      ];
-      return {
-        episode_number: i + 1,
-        narrative_goal: goals[i % goals.length] ?? `Episode ${i + 1}: Continue the narrative arc with rising tension`,
-      };
-    }),
-  };
+  const { object } = await generateObject({
+    model: heavyModel,
+    schema: StoryArcSchema,
+    prompt: [
+      `You are a showrunner planning a serialized narrative titled "${title}".`,
+      "Transform the premise into global characters and a clear episode-by-episode arc.",
+      `Premise:\n${rawStory}`,
+      `Return exactly ${episodeCount} episode_goals with sequential episode_number fields from 1 to ${episodeCount}.`,
+      "Keep each narrative_goal concise (under 25 words) and avoid duplicating beats.",
+      "Ensure global_characters include distinct roles and traits that recur across the series.",
+    ].join("\n\n"),
+  });
 
-  StoryArcSchema.parse(result);
-  return result;
+  const parsed = StoryArcSchema.parse(object);
+  if (parsed.episode_goals.length !== episodeCount) {
+    throw new Error(
+      `Expected ${episodeCount} episode_goals but received ${parsed.episode_goals.length}.`
+    );
+  }
+
+  return parsed;
 }
 
 // ─── Placeholder: Agent 1 — Narrative Architect ─────────────────────────────
@@ -148,20 +175,24 @@ export async function generateEpisodeScript(
   episodeNumber: number,
   previousLedger: ContinuityLedger | null
 ): Promise<EpisodeGeneration> {
-  const result: EpisodeGeneration = {
-    script_content: `EPISODE ${episodeNumber}: ${episodeGoal}. The scene opens with rising tension. Characters navigate a complex situation driven by hidden motives and mounting pressure. A critical discovery changes everything. The episode ends with an unresolved threat that propels the narrative forward. [Placeholder — ~150 words of generated script content will appear here when connected to the LLM.]`,
-    continuity_ledger: {
-      information_state: [
-        { fact: `Key event from episode ${episodeNumber} occurred`, known_by: ["Protagonist"], unknown_by: ["Antagonist"] },
-      ],
-      relationship_state: [
-        { entities: ["Protagonist", "Ally"], dynamic: episodeNumber <= 4 ? "Building trust" : "Tested under pressure" },
-      ],
-    },
-  };
+  const worldState = previousLedger
+    ? JSON.stringify(previousLedger, null, 2)
+    : "None — this is the opening episode.";
 
-  EpisodeGenerationSchema.parse(result);
-  return result;
+  const { object } = await generateObject({
+    model: heavyModel,
+    schema: EpisodeGenerationSchema,
+    prompt: [
+      `You are writing Episode ${episodeNumber} of a serialized show.`,
+      `Episode goal: ${episodeGoal}`,
+      "Write a tight, visual script around ~150 words (about 90 seconds of screen time).",
+      "Return the script_content and an updated continuity_ledger capturing new facts and relationship shifts.",
+      "Keep the ledger succinct (≤5 facts and ≤5 relationships) and ensure names align with prior episodes.",
+      `World State (continuity ledger from previous episodes):\n${worldState}`,
+    ].join("\n\n"),
+  });
+
+  return EpisodeGenerationSchema.parse(object);
 }
 
 // ─── Placeholder: Model 1 — Sentiment Analysis (NLP) ────────────────────────
@@ -173,26 +204,75 @@ export async function generateEpisodeScript(
 export async function analyzeEpisodeSentiment(
   scriptContent: string
 ): Promise<SentimentAnalysis> {
-  const sentences = scriptContent.match(/[^.!?]+[.!?]+/g) || [scriptContent];
-  const segmentCount = Math.min(9, Math.max(3, Math.ceil(sentences.length / 2)));
+  const chunks = buildWordChunks(scriptContent);
+  const inputs = chunks.map((chunk) => chunk.text);
 
-  const emotions = ["neutral", "fear", "surprise", "curiosity", "tension", "anger", "sadness", "excitement", "anticipation"];
+  const huggingFaceApiKey = process.env.HUGGINGFACE_API_KEY;
+  if (!huggingFaceApiKey) {
+    throw new Error("HUGGINGFACE_API_KEY is not set.");
+  }
 
-  const segments = Array.from({ length: segmentCount }, (_, i) => {
-    const chunkSentences = sentences.slice(i * 2, i * 2 + 2);
-    // Generate a realistic intensity curve: starts moderate, dips mid, spikes at end
-    const position = i / (segmentCount - 1 || 1);
-    const baseIntensity = 0.4 + 0.3 * Math.sin(position * Math.PI) + position * 0.2;
-    const intensity = parseFloat(Math.min(1, Math.max(0, baseIntensity + (Math.random() * 0.1 - 0.05))).toFixed(2));
+  // Use one batched HF inference request with an array of chunk inputs.
+  const response = await fetch(
+    "https://router.huggingface.co/hf-inference/models/SamLowe/roberta-base-go_emotions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${huggingFaceApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ inputs }),
+    }
+  );
 
-    return {
-      start_sec: i * 10,
-      end_sec: (i + 1) * 10,
-      text: chunkSentences.join(" ").trim() || `[Segment ${i + 1}]`,
-      emotion: emotions[i % emotions.length],
-      emotion_intensity: intensity,
-    };
-  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Hugging Face sentiment request failed (${response.status}): ${body}`);
+  }
+
+  const raw = (await response.json()) as unknown;
+  if (!Array.isArray(raw)) {
+    throw new Error("Unexpected Hugging Face sentiment response shape.");
+  }
+
+  type HFClassification = { label: string; score: number };
+  const normalized: HFClassification[][] = Array.isArray(raw[0])
+    ? (raw as HFClassification[][])
+    : [raw as HFClassification[]];
+
+  if (normalized.length === 0 || normalized.every((entry) => !Array.isArray(entry) || entry.length === 0)) {
+    throw new Error("Hugging Face sentiment response was empty.");
+  }
+
+const EMOTION_WEIGHTS: Record<string, number> = {
+  neutral: 0.1,   
+  approval: 0.2,
+  realization: 0.6,
+  curiosity: 0.7,
+  nervousness: 0.7,
+  surprise: 0.8,
+  anger: 0.8,
+  fear: 0.9,
+  excitement: 0.9
+};
+
+const segments = chunks.map((chunk, index) => {
+  const predictions = normalized[index] ?? normalized[0];
+  const top = predictions.reduce((best, current) =>
+    current.score > best.score ? current : best
+  );
+
+  const baseWeight = EMOTION_WEIGHTS[top.label] ?? 0.5;
+  const calculatedIntensity = top.score * baseWeight;
+
+  return {
+    start_sec: chunk.start_sec,
+    end_sec: chunk.end_sec,
+    text: chunk.text,
+    emotion: top.label,
+    emotion_intensity: parseFloat(calculatedIntensity.toFixed(4)), 
+  };
+});
 
   const result: SentimentAnalysis = { segments };
 
@@ -209,24 +289,22 @@ export async function analyzeEpisodeSentiment(
 export async function evaluateEpisodeHooks(
   scriptContent: string
 ): Promise<HookCliffhanger> {
-  const wordCount = scriptContent.split(/\s+/).length;
-  const hookScore = parseFloat(Math.min(1, 0.5 + wordCount * 0.002).toFixed(2));
-  const threatLevel = parseFloat(Math.min(1, 0.4 + wordCount * 0.003).toFixed(2));
+  const opening = takeWords(scriptContent, 25);
+  const closing = takeWords(scriptContent, 40, true);
 
-  const result: HookCliffhanger = {
-    hook: {
-      pattern: "curiosity_gap",
-      novelty_score: hookScore,
-    },
-    cliffhanger: {
-      open_loops: Math.min(5, Math.max(1, Math.floor(wordCount / 30))),
-      threat_level: threatLevel,
-      logic: "Unresolved narrative threads create viewer anticipation. The final scene introduces a new visual stake that raises immediate questions.",
-    },
-  };
+  const { object } = await generateObject({
+    model: fastModel,
+    schema: HookCliffhangerSchema,
+    prompt: [
+      "Assess the hook and cliffhanger strength of this episode script.",
+      "Focus only on the opening (~10s) and closing (~15s) excerpts provided.",
+      `Opening excerpt:\n${opening}`,
+      `Closing excerpt:\n${closing}`,
+      "Return a hook pattern and novelty_score plus cliffhanger open_loops, threat_level (0-1), and brief logic rationale.",
+    ].join("\n\n"),
+  });
 
-  HookCliffhangerSchema.parse(result);
-  return result;
+  return HookCliffhangerSchema.parse(object);
 }
 
 // ─── Placeholder: Agent 3 — Optimization Critic ─────────────────────────────
@@ -238,33 +316,27 @@ export async function evaluateEpisodeHooks(
 export async function suggestOptimizations(
   segments: SentimentAnalysis["segments"]
 ): Promise<OptimizationCritic> {
-  const issues: OptimizationCritic["issues"] = [];
-  const suggestions: OptimizationCritic["optimization_suggestions"] = [];
+  const highRiskSegments = segments.filter((seg) => seg.emotion_intensity < 0.15);
 
-  for (const seg of segments) {
-    if (seg.emotion_intensity < 0.35) {
-      issues.push({
-        type: "low_tension",
-        target_time_sec: seg.start_sec,
-        severity: seg.emotion_intensity < 0.2 ? "high" : "medium",
-      });
-      suggestions.push({
-        target_time_sec: seg.start_sec,
-        suggestion: `Emotional intensity at ${seg.start_sec}s is ${seg.emotion_intensity}. Consider inserting a visual reveal or character conflict to break the flatline.`,
-      });
-    }
+  if (highRiskSegments.length === 0) {
+    const empty: OptimizationCritic = {
+      issues: [],
+      optimization_suggestions: [],
+    };
+    OptimizationCriticSchema.parse(empty);
+    return empty;
   }
 
-  // Always return at least one suggestion for demo purposes
-  if (suggestions.length === 0) {
-    suggestions.push({
-      target_time_sec: segments[segments.length - 1]?.start_sec ?? 0,
-      suggestion: "Pacing is strong. Consider amplifying the final cliffhanger with a time-pressure element.",
-    });
-  }
+  const { object } = await generateObject({
+    model: fastModel,
+    schema: OptimizationCriticSchema,
+    prompt: [
+      "Identify engagement risks in these episode segments and propose fixes.",
+      "Only consider segments where emotion_intensity < 0.15.",
+      `Segments (JSON):\n${JSON.stringify(highRiskSegments, null, 2)}`,
+      "Return issues with type, target_time_sec, severity plus matching optimization_suggestions that are concise and actionable.",
+    ].join("\n\n"),
+  });
 
-  const result: OptimizationCritic = { issues, optimization_suggestions: suggestions };
-
-  OptimizationCriticSchema.parse(result);
-  return result;
+  return OptimizationCriticSchema.parse(object);
 }

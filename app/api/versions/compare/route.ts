@@ -7,6 +7,35 @@ import { calculateVersionDelta, type RadarMetrics } from "@/src/lib/math-engine"
 
 const uuidSchema = z.uuid();
 
+function toRadarMetrics(
+  analysis: {
+    overallEngagementScore: string | number | null;
+    averageCliffhanger: string | number | null;
+    radarMetrics: unknown;
+  }
+): RadarMetrics {
+  const stored = (analysis.radarMetrics as Record<string, number> | null) ?? {};
+  const hookStrength =
+    typeof stored.hook_strength === "number"
+      ? stored.hook_strength
+      : Number(analysis.overallEngagementScore ?? 0);
+  const suspenseDensity =
+    typeof stored.suspense_density === "number"
+      ? stored.suspense_density
+      : Number(analysis.averageCliffhanger ?? 0);
+  const retentionStability =
+    typeof stored.retention_stability === "number"
+      ? stored.retention_stability
+      : 0;
+
+  return {
+    ...stored,
+    hook_strength: hookStrength,
+    suspense_density: suspenseDensity,
+    retention_stability: retentionStability,
+  };
+}
+
 // GET /api/versions/compare?base_id={uuid}&target_id={uuid} — Calculate delta between two versions
 export async function GET(request: NextRequest) {
   try {
@@ -40,19 +69,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const baseMetrics: RadarMetrics = {
-      overall_engagement: Number(baseAnalysis.overallEngagementScore ?? 0),
-      average_cliffhanger: Number(baseAnalysis.averageCliffhanger ?? 0),
-      retention_stability: (baseAnalysis.radarMetrics as RadarMetrics | null)?.retention_stability ?? 0,
-      ...(baseAnalysis.radarMetrics as Record<string, number> | null),
-    };
-
-    const targetMetrics: RadarMetrics = {
-      overall_engagement: Number(targetAnalysis.overallEngagementScore ?? 0),
-      average_cliffhanger: Number(targetAnalysis.averageCliffhanger ?? 0),
-      retention_stability: (targetAnalysis.radarMetrics as RadarMetrics | null)?.retention_stability ?? 0,
-      ...(targetAnalysis.radarMetrics as Record<string, number> | null),
-    };
+    const baseMetrics = toRadarMetrics(baseAnalysis);
+    const targetMetrics = toRadarMetrics(targetAnalysis);
 
     const deltas = calculateVersionDelta(baseMetrics, targetMetrics);
 

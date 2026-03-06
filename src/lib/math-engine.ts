@@ -43,6 +43,7 @@ const NORMAL_DROP_PROBABILITY = 0.1;
  * Edge values use available neighbors (partial window).
  */
 function simpleMovingAverage(values: number[], window: number = SMA_WINDOW): number[] {
+  if (values.length === 0) return [];
   return values.map((_, i) => {
     const halfWindow = Math.floor(window / 2);
     const start = Math.max(0, i - halfWindow);
@@ -53,7 +54,7 @@ function simpleMovingAverage(values: number[], window: number = SMA_WINDOW): num
       sum += values[j];
       count++;
     }
-    return sum / count;
+    return count > 0 ? sum / count : 0;
   });
 }
 
@@ -149,9 +150,9 @@ export function deriveEngagementScore(
   cliffhangerPower: number
 ): number {
   const raw =
-    hookStrength * 0.35 +
-    emotionalVariance * 0.35 +
-    cliffhangerPower * 0.3;
+    (Number.isFinite(hookStrength) ? hookStrength : 0) * 0.35 +
+    (Number.isFinite(emotionalVariance) ? emotionalVariance : 0) * 0.35 +
+    (Number.isFinite(cliffhangerPower) ? cliffhangerPower : 0) * 0.3;
   return parseFloat(Math.min(1, Math.max(0, raw)).toFixed(4));
 }
 

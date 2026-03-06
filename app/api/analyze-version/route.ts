@@ -19,6 +19,9 @@ const analyzeVersionSchema = z.object({
   version_id: z.uuid(),
 });
 
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+
 // Extracted single-episode analysis logic (shared with /api/analyze-episode)
 async function analyzeOneEpisode(episodeRow: typeof episodes.$inferSelect) {
   const [sentiment, hooks] = await Promise.all([
@@ -114,18 +117,21 @@ export async function POST(request: NextRequest) {
         for (const ep of versionEpisodes) {
           const result = await analyzeOneEpisode(ep);
           results.push(result);
+          
+          // Wait 2 seconds between episodes to prevent 429 Rate Limits
+          await sleep(2000); 
         }
 
         // 4. Aggregate scores for version_analysis
         const allIntensities = results.flatMap((r) =>
           r.sentiment.segments.map((s) => s.emotion_intensity)
         );
-        const avgHookStrength =
-          results.reduce((sum, r) => sum + r.hookAndCliffhangerMetrics.hook_strength, 0) /
-          (results.length || 1);
-        const avgCliffhanger =
-          results.reduce((sum, r) => sum + r.hookAndCliffhangerMetrics.cliffhanger_score, 0) /
-          (results.length || 1);
+        const avgHookStrength = results.length > 0
+          ? results.reduce((sum, r) => sum + r.hookAndCliffhangerMetrics.hook_strength, 0) / results.length
+          : 0;
+        const avgCliffhanger = results.length > 0
+          ? results.reduce((sum, r) => sum + r.hookAndCliffhangerMetrics.cliffhanger_score, 0) / results.length
+          : 0;
         const emotionalVariance = calculateEmotionalVariance(allIntensities);
         const overallEngagement = deriveEngagementScore(
           avgHookStrength,
@@ -133,9 +139,9 @@ export async function POST(request: NextRequest) {
           avgCliffhanger / 10 // normalize cliffhanger score to 0-1 range
         );
 
-        const avgThreatLevel =
-          results.reduce((sum, r) => sum + r.hookAndCliffhangerMetrics.threat_level, 0) /
-          (results.length || 1);
+        const avgThreatLevel = results.length > 0
+          ? results.reduce((sum, r) => sum + r.hookAndCliffhangerMetrics.threat_level, 0) / results.length
+          : 0;
 
         // Suspense density = average tension across all segments
         const suspenseDensity = allIntensities.length > 0
@@ -153,23 +159,34 @@ export async function POST(request: NextRequest) {
           retention_stability: retentionStability,
         };
 
+        // NaN guard: prevent Postgres errors from bad math on empty/failed data
+        const safeNum = (v: number) => (Number.isFinite(v) ? v : 0);
+        const safeOverall = safeNum(overallEngagement).toFixed(4);
+        const safeCliff = safeNum(avgCliffhanger).toFixed(2);
+        const safeVariance = safeNum(emotionalVariance).toFixed(4);
+        const safeRadar = {
+          hook_strength: safeNum(radarMetrics.hook_strength),
+          suspense_density: safeNum(radarMetrics.suspense_density),
+          retention_stability: safeNum(radarMetrics.retention_stability),
+        };
+
         // Upsert version_analysis
         await db
           .insert(versionAnalysis)
           .values({
             versionId: version_id,
-            overallEngagementScore: overallEngagement.toFixed(4),
-            averageCliffhanger: avgCliffhanger.toFixed(2),
-            emotionalVarianceIndex: emotionalVariance.toFixed(4),
-            radarMetrics,
+            overallEngagementScore: safeOverall,
+            averageCliffhanger: safeCliff,
+            emotionalVarianceIndex: safeVariance,
+            radarMetrics: safeRadar,
           })
           .onConflictDoUpdate({
             target: versionAnalysis.versionId,
             set: {
-              overallEngagementScore: overallEngagement.toFixed(4),
-              averageCliffhanger: avgCliffhanger.toFixed(2),
-              emotionalVarianceIndex: emotionalVariance.toFixed(4),
-              radarMetrics,
+              overallEngagementScore: safeOverall,
+              averageCliffhanger: safeCliff,
+              emotionalVarianceIndex: safeVariance,
+              radarMetrics: safeRadar,
             },
           });
 
