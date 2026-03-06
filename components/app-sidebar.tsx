@@ -2,42 +2,32 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { motion } from "framer-motion"
 import { 
   LayoutDashboard, 
   Plus, 
-  Settings, 
-  HelpCircle, 
-  LogOut,
   Film,
   FolderOpen,
   Sparkles
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { getProjects } from "@/src/lib/api"
 
 const mainNavItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/project/new", icon: Plus, label: "New Series" },
 ]
 
-const bottomNavItems = [
-  { href: "#", icon: Settings, label: "Settings" },
-  { href: "#", icon: HelpCircle, label: "Help" },
-]
-
-interface RecentProject {
-  id: string
-  title: string
-}
-
-const recentProjects: RecentProject[] = [
-  { id: "1", title: "The Midnight Protocol" },
-  { id: "2", title: "Echoes of Tomorrow" },
-  { id: "3", title: "Forgotten Realms" },
-]
-
 export function AppSidebar() {
   const pathname = usePathname()
+
+  const { data } = useQuery({
+    queryKey: ["projects"],
+    queryFn: getProjects,
+  })
+
+  const recentProjects = (data?.projects ?? []).slice(0, 5)
 
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-64 bg-[#0a0c10] border-r border-white/5 flex flex-col z-40">
@@ -84,55 +74,36 @@ export function AppSidebar() {
         })}
 
         {/* Recent Projects */}
-        <div className="pt-6">
-          <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            <FolderOpen className="w-3.5 h-3.5" />
-            Recent Projects
+        {recentProjects.length > 0 && (
+          <div className="pt-6">
+            <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <FolderOpen className="w-3.5 h-3.5" />
+              Recent Projects
+            </div>
+            <div className="mt-2 space-y-1">
+              {recentProjects.map((project) => {
+                const projectPath = `/project/${project.id}`
+                const isActive = pathname.startsWith(projectPath)
+                return (
+                  <Link
+                    key={project.id}
+                    href={projectPath}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 truncate",
+                      isActive
+                        ? "text-foreground bg-white/5"
+                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                    )}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-purple-400" />
+                    <span className="truncate">{project.title}</span>
+                  </Link>
+                )
+              })}
+            </div>
           </div>
-          <div className="mt-2 space-y-1">
-            {recentProjects.map((project) => {
-              const projectPath = `/project/${project.id}`
-              const isActive = pathname.startsWith(projectPath)
-              return (
-                <Link
-                  key={project.id}
-                  href={projectPath}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200 truncate",
-                    isActive
-                      ? "text-foreground bg-white/5"
-                      : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-                  )}
-                >
-                  <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-purple-400" />
-                  <span className="truncate">{project.title}</span>
-                </Link>
-              )
-            })}
-          </div>
-        </div>
+        )}
       </nav>
-
-      {/* Bottom Navigation */}
-      <div className="p-4 border-t border-white/5 space-y-1">
-        {bottomNavItems.map((item) => (
-          <Link
-            key={item.label}
-            href={item.href}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-200"
-          >
-            <item.icon className="w-4 h-4" />
-            {item.label}
-          </Link>
-        ))}
-        <Link
-          href="/"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-all duration-200"
-        >
-          <LogOut className="w-4 h-4" />
-          Sign Out
-        </Link>
-      </div>
     </aside>
   )
 }

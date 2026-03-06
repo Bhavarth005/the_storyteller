@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, Playfair_Display } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { QueryProvider } from '@/src/components/providers/query-provider'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
 const inter = Inter({ 
@@ -48,7 +50,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${playfair.variable} font-sans antialiased bg-[#07080B] text-foreground`}>
-        {children}
+        <QueryProvider>
+          {children}
+        </QueryProvider>
+        <Toaster richColors />
         <Analytics />
       </body>
     </html>

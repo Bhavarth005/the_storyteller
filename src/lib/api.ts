@@ -215,6 +215,7 @@ export type GenerateCoreRequest = {
 export type GenerateCoreResponse = {
   project_id: string;
   version_id: string;
+  episode_ids: string[];
   analysis_status: "pending" | "processing" | "complete" | "failed";
   message: string;
 };
@@ -329,5 +330,19 @@ export type VersionCharactersResponse = {
 
 export function getVersionCharacters(versionId: string) {
   return fetchJson<VersionCharactersResponse>(`/api/versions/${versionId}/characters`);
+}
+
+// ---- Finalize Version
+export type FinalizeVersionRequest = { version_id: string };
+export type FinalizeVersionResponse = {
+  version_id: string;
+  analysis_status: "complete";
+};
+
+export function finalizeVersion(body: FinalizeVersionRequest) {
+  return fetchJson<FinalizeVersionResponse>("/api/finalize-version", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 

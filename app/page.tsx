@@ -1,14 +1,11 @@
 "use client"
 
-import { useState } from "react"
 import { motion } from "framer-motion"
 import { Sparkles, Zap, LineChart, Film } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { AuthModal } from "@/components/auth-modal"
+import Link from "next/link"
 
 export default function LandingPage() {
-  const [authOpen, setAuthOpen] = useState(false)
-
   return (
     <div className="min-h-screen bg-[#07080B] noise-bg overflow-hidden">
       {/* Navigation */}
@@ -23,9 +20,9 @@ export default function LandingPage() {
           <Button
             variant="ghost"
             className="text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => setAuthOpen(true)}
+            asChild
           >
-            Sign In
+            <Link href="/dashboard">Go to Dashboard</Link>
           </Button>
         </div>
       </nav>
@@ -62,17 +59,9 @@ export default function LandingPage() {
               <Button
                 size="lg"
                 className="bg-cyan-500 hover:bg-cyan-400 text-black font-medium px-8 py-6 text-base glow-cyan transition-all duration-300"
-                onClick={() => setAuthOpen(true)}
+                asChild
               >
-                Start Creating
-              </Button>
-              <Button
-                size="lg"
-                variant="outline"
-                className="border-white/10 hover:bg-white/5 px-8 py-6 text-base transition-all"
-                onClick={() => setAuthOpen(true)}
-              >
-                Watch Demo
+                <Link href="/dashboard">Start Creating</Link>
               </Button>
             </div>
           </motion.div>
@@ -118,8 +107,6 @@ export default function LandingPage() {
           </motion.div>
         </div>
       </main>
-
-      <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   )
 }

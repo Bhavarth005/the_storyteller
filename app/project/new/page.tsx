@@ -1,64 +1,171 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Sparkles, Check, Loader2, ArrowLeft } from "lucide-react"
+import { Sparkles, Check, Loader2, ArrowLeft, AlertCircle, RotateCcw } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import {
+  generateCore,
+  analyzeEpisode,
+  finalizeVersion,
+  ApiError,
+} from "@/src/lib/api"
+import { toast } from "sonner"
 
-interface GenerationStep {
+// ---------------------------------------------------------------------------
+// Types for the multi-step progress UI
+// ---------------------------------------------------------------------------
+type StepStatus = "pending" | "loading" | "complete" | "error"
+
+interface PipelineStep {
   id: string
   label: string
-  status: "pending" | "loading" | "complete"
+  status: StepStatus
+  errorMsg?: string
 }
 
-const initialSteps: GenerationStep[] = [
-  { id: "scripts", label: "Generating Episode Scripts", status: "pending" },
-  { id: "sentiment", label: "Running Sentiment Math", status: "pending" },
-  { id: "retention", label: "Computing Retention Risks", status: "pending" },
-  { id: "cliffhangers", label: "Scoring Cliffhangers", status: "pending" },
-  { id: "optimization", label: "Building Optimization Map", status: "pending" },
-]
+function buildSteps(episodeIds: string[]): PipelineStep[] {
+  return [
+    { id: "core", label: "Generating Episode Scripts", status: "complete" },
+    ...episodeIds.map((epId, i) => ({
+      id: `ep-${epId}`,
+      label: `Analyzing Episode ${i + 1}`,
+      status: "pending" as StepStatus,
+    })),
+    { id: "finalize", label: "Finalizing Version Metrics", status: "pending" },
+  ]
+}
+
+// Max retries for 504 Gateway Timeout on analyze-episode
+const MAX_RETRIES = 3
+
+async function analyzeWithRetry(episodeId: string): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      await analyzeEpisode({ episode_id: episodeId })
+      return
+    } catch (err) {
+      lastError = err
+      const is504 = err instanceof ApiError && err.status === 504
+      if (!is504 || attempt === MAX_RETRIES - 1) throw err
+      // brief back-off before retry
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+    }
+  }
+  throw lastError
+}
 
 export default function GenesisFlowPage() {
   const router = useRouter()
+  const queryClient = useQueryClient()
   const [title, setTitle] = useState("")
   const [isFullDraft, setIsFullDraft] = useState(false)
   const [content, setContent] = useState("")
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [steps, setSteps] = useState<GenerationStep[]>(initialSteps)
 
-  const handleGenerate = async () => {
-    if (!title.trim() || !content.trim()) return
+  // Pipeline state
+  const [steps, setSteps] = useState<PipelineStep[]>([])
+  const [pipelineError, setPipelineError] = useState<string | null>(null)
+  const pipelineRef = useRef<{
+    projectId: string
+    versionId: string
+    episodeIds: string[]
+  } | null>(null)
 
-    setIsGenerating(true)
+  const isRunning = steps.length > 0 && !pipelineError && !steps.every((s) => s.status === "complete")
+  const isComplete = steps.length > 0 && steps.every((s) => s.status === "complete")
 
-    // Simulate step-by-step generation
-    for (let i = 0; i < steps.length; i++) {
+  // Helper to update a single step
+  const updateStep = useCallback(
+    (id: string, patch: Partial<PipelineStep>) =>
       setSteps((prev) =>
-        prev.map((step, index) =>
-          index === i ? { ...step, status: "loading" } : step
-        )
-      )
+        prev.map((s) => (s.id === id ? { ...s, ...patch } : s))
+      ),
+    []
+  )
 
-      await new Promise((resolve) => setTimeout(resolve, 1200 + Math.random() * 800))
+  // -------------------------------------------------------------------------
+  // Step 1: POST /api/generate-core
+  // -------------------------------------------------------------------------
+  const generateCoreMutation = useMutation({
+    mutationFn: generateCore,
+    onError: (err: Error) => {
+      setPipelineError(err.message)
+      toast.error("Generation failed", { description: err.message })
+    },
+  })
 
-      setSteps((prev) =>
-        prev.map((step, index) =>
-          index === i ? { ...step, status: "complete" } : step
-        )
-      )
+  // -------------------------------------------------------------------------
+  // The full orchestration pipeline
+  // -------------------------------------------------------------------------
+  const runPipeline = useCallback(async () => {
+    setPipelineError(null)
+    setSteps([{ id: "core", label: "Generating Episode Scripts", status: "loading" }])
+
+    try {
+      // ---- Step 1: generate-core ----
+      const coreResult = await generateCoreMutation.mutateAsync({
+        title: title.trim(),
+        input_type: isFullDraft ? "draft" : "idea",
+        raw_story: content.trim(),
+      })
+
+      const { project_id, version_id, episode_ids } = coreResult
+      pipelineRef.current = { projectId: project_id, versionId: version_id, episodeIds: episode_ids }
+
+      // Build the full step list now that we know episode count
+      const fullSteps = buildSteps(episode_ids)
+      setSteps(fullSteps)
+
+      // ---- Step 2: analyze each episode sequentially ----
+      for (const epId of episode_ids) {
+        const stepId = `ep-${epId}`
+        updateStep(stepId, { status: "loading" })
+        try {
+          await analyzeWithRetry(epId)
+          updateStep(stepId, { status: "complete" })
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Analysis failed"
+          updateStep(stepId, { status: "error", errorMsg: msg })
+          throw err // abort pipeline
+        }
+      }
+
+      // ---- Step 3: finalize-version ----
+      updateStep("finalize", { status: "loading" })
+      await finalizeVersion({ version_id })
+      updateStep("finalize", { status: "complete" })
+
+      // Invalidate projects cache so dashboard/sidebar update
+      queryClient.invalidateQueries({ queryKey: ["projects"] })
+
+      // Small pause so user can see the completed checklist
+      await new Promise((r) => setTimeout(r, 600))
+
+      // ---- Step 4: redirect ----
+      router.push(`/project/${project_id}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Something went wrong"
+      setPipelineError(msg)
+      toast.error("Pipeline failed", { description: msg })
     }
+  }, [title, isFullDraft, content, generateCoreMutation, updateStep, queryClient, router])
 
-    // Redirect to the new project
-    setTimeout(() => {
-      router.push("/project/1")
-    }, 500)
-  }
+  // Retry the pipeline from scratch
+  const handleRetry = useCallback(() => {
+    setSteps([])
+    setPipelineError(null)
+    pipelineRef.current = null
+    runPipeline()
+  }, [runPipeline])
+
+  const isBusy = isRunning || generateCoreMutation.isPending
 
   return (
     <div className="min-h-screen p-8 noise-bg relative">
@@ -98,7 +205,7 @@ export default function GenesisFlowPage() {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="bg-background/50 border-white/10 focus:border-cyan-400 focus:ring-cyan-400/20 text-lg py-6 transition-all"
-              disabled={isGenerating}
+              disabled={isBusy}
             />
           </div>
 
@@ -115,7 +222,7 @@ export default function GenesisFlowPage() {
               <Switch
                 checked={isFullDraft}
                 onCheckedChange={setIsFullDraft}
-                disabled={isGenerating}
+                disabled={isBusy}
               />
               <span className="text-sm text-muted-foreground">Full Draft</span>
             </div>
@@ -136,14 +243,14 @@ export default function GenesisFlowPage() {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className="w-full h-80 p-4 rounded-xl bg-background/50 border border-white/10 focus:border-purple-400 focus:ring-purple-400/20 focus:outline-none text-foreground font-serif text-lg leading-relaxed resize-none transition-all"
-              disabled={isGenerating}
+              disabled={isBusy}
             />
           </div>
 
           {/* Generate Button */}
           <Button
-            onClick={handleGenerate}
-            disabled={isGenerating || !title.trim() || !content.trim()}
+            onClick={runPipeline}
+            disabled={isBusy || !title.trim() || !content.trim()}
             className="w-full bg-purple-500 hover:bg-purple-400 text-white font-medium py-6 glow-purple transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Sparkles className="w-5 h-5 mr-2" />
@@ -154,7 +261,7 @@ export default function GenesisFlowPage() {
 
       {/* Generation Overlay */}
       <AnimatePresence>
-        {isGenerating && (
+        {(isBusy || isComplete || pipelineError) && steps.length > 0 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -169,13 +276,25 @@ export default function GenesisFlowPage() {
             >
               <div className="text-center mb-8">
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center mx-auto mb-4">
-                  <Sparkles className="w-8 h-8 text-white animate-pulse" />
+                  {pipelineError ? (
+                    <AlertCircle className="w-8 h-8 text-white" />
+                  ) : (
+                    <Sparkles className="w-8 h-8 text-white animate-pulse" />
+                  )}
                 </div>
                 <h2 className="text-2xl font-semibold text-foreground mb-2">
-                  Building Your Intelligence Engine
+                  {pipelineError
+                    ? "Pipeline Error"
+                    : isComplete
+                    ? "Engine Ready!"
+                    : "Building Your Intelligence Engine"}
                 </h2>
                 <p className="text-muted-foreground">
-                  Analyzing narrative structure and computing metrics...
+                  {pipelineError
+                    ? pipelineError
+                    : isComplete
+                    ? "Redirecting to your workspace..."
+                    : "Analyzing narrative structure and computing metrics..."}
                 </p>
               </div>
 
@@ -185,10 +304,10 @@ export default function GenesisFlowPage() {
                     key={step.id}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1 }}
+                    transition={{ delay: index * 0.05 }}
                     className="flex items-center gap-3"
                   >
-                    <div className="w-6 h-6 flex items-center justify-center">
+                    <div className="w-6 h-6 flex items-center justify-center flex-shrink-0">
                       {step.status === "complete" ? (
                         <motion.div
                           initial={{ scale: 0 }}
@@ -199,6 +318,10 @@ export default function GenesisFlowPage() {
                         </motion.div>
                       ) : step.status === "loading" ? (
                         <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />
+                      ) : step.status === "error" ? (
+                        <div className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+                          <AlertCircle className="w-3 h-3 text-white" />
+                        </div>
                       ) : (
                         <div className="w-5 h-5 rounded-full border border-white/20" />
                       )}
@@ -209,6 +332,8 @@ export default function GenesisFlowPage() {
                           ? "text-foreground"
                           : step.status === "loading"
                           ? "text-purple-400"
+                          : step.status === "error"
+                          ? "text-red-400"
                           : "text-muted-foreground"
                       }
                     >
@@ -216,7 +341,50 @@ export default function GenesisFlowPage() {
                     </span>
                   </motion.div>
                 ))}
+
+                {/* Progress bar */}
+                {!pipelineError && steps.length > 0 && (
+                  <div className="pt-2">
+                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <motion.div
+                        className="h-full bg-gradient-to-r from-cyan-400 to-purple-500 rounded-full"
+                        initial={{ width: 0 }}
+                        animate={{
+                          width: `${(steps.filter((s) => s.status === "complete").length / steps.length) * 100}%`,
+                        }}
+                        transition={{ duration: 0.4, ease: "easeOut" }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2 text-center">
+                      {steps.filter((s) => s.status === "complete").length} / {steps.length} steps complete
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {/* Retry button on error */}
+              {pipelineError && (
+                <div className="mt-6 flex gap-3 justify-center">
+                  <Button
+                    variant="outline"
+                    className="border-white/10"
+                    onClick={() => {
+                      setSteps([])
+                      setPipelineError(null)
+                    }}
+                  >
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back to Form
+                  </Button>
+                  <Button
+                    className="bg-purple-500 hover:bg-purple-400 text-white"
+                    onClick={handleRetry}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Retry
+                  </Button>
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
