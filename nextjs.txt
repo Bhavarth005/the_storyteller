@@ -1,0 +1,659 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Sparkles, BookOpen, Wand2, Heart, Swords, GraduationCap, Users, 
+  ChevronRight, Play, Download, Volume2, ChevronDown, Menu, X, 
+  Eye, Star, Check, Zap, Shield, Clock, Globe, ArrowLeft, Mail, 
+  MessageSquare, HelpCircle, Search, Activity, Briefcase, FileText,
+  Twitter, Instagram, Facebook, Github
+} from 'lucide-react';
+
+ --- Shared Components ---
+
+const Navbar = ({ currentView, setView }) = {
+  const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() = {
+    const handleScroll = () = setScrolled(window.scrollY  20);
+    window.addEventListener('scroll', handleScroll);
+    return () = window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const navLinks = [
+    { id 'home', label 'Create Stories' },
+    { id 'templates', label 'Templates' },
+    { id 'gallery', label 'Gallery' },
+    { id 'pricing', label 'Pricing' },
+  ];
+
+  const handleNav = (id) = {
+    setView(id);
+    setMobileMenuOpen(false);
+    window.scrollTo(0, 0);
+  };
+
+  return (
+    nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled  mobileMenuOpen  'bg-black80 backdrop-blur-lg border-b border-white5 py-3'  'bg-transparent py-6'}`}
+      div className=max-w-7xl mx-auto px-6 flex items-center justify-between
+        button onClick={() = handleNav('home')} className=flex items-center gap-2 group
+          div className=w-8 h-8 bg-gradient-to-br from-orange-500 to-pink-600 rounded-lg flex items-center justify-center group-hoverrotate-12 transition-transform
+            BookOpen className=w-5 h-5 text-white 
+          div
+          span className=text-xl font-bold tracking-tightStoryMaker AIspan
+        button
+
+        div className=hidden mdflex items-center gap-8 text-sm font-medium
+          {navLinks.map(link = (
+            button 
+              key={link.id}
+              onClick={() = handleNav(link.id)}
+              className={`transition-colors ${currentView === link.id  'text-orange-400'  'text-white60 hovertext-white'}`}
+            
+              {link.label}
+            button
+          ))}
+        div
+
+        div className=flex items-center gap-4
+          button className=hidden smblock text-sm font-semibold hovertext-white transition-colors text-white80Log inbutton
+          button 
+            onClick={() = handleNav('home')}
+            className=bg-white10 hoverbg-white20 border border-white10 px-5 py-2 rounded-full text-sm font-bold transition-all flex items-center gap-2 backdrop-blur-sm
+          
+            Sparkles className=w-4 h-4 text-orange-400 
+            Start Creating
+          button
+          button className=mdhidden text-white onClick={() = setMobileMenuOpen(!mobileMenuOpen)}
+            {mobileMenuOpen  X   Menu }
+          button
+        div
+      div
+
+      {mobileMenuOpen && (
+        div className=mdhidden absolute top-full left-0 w-full bg-black border-b border-white5 p-6 space-y-4 animate-in fade-in slide-in-from-top-4
+          {navLinks.map(link = (
+            button 
+              key={link.id}
+              onClick={() = handleNav(link.id)}
+              className=block w-full text-left text-lg font-bold text-white70 hovertext-orange-400
+            
+              {link.label}
+            button
+          ))}
+          div className=pt-4 border-t border-white5
+            button className=w-full py-3 text-center font-bold bg-white5 rounded-xlLog inbutton
+          div
+        div
+      )}
+    nav
+  );
+};
+
+const Footer = ({ setView }) = {
+  const handleLink = (id) = {
+    setView(id);
+    window.scrollTo(0, 0);
+  };
+
+  return (
+    footer className=border-t border-white5 pt-20 pb-10 px-6 bg-black20
+      div className=max-w-7xl mx-auto
+        div className=flex flex-col mdflex-row justify-between gap-12 mb-20
+          div className=max-w-xs
+            div className=flex items-center gap-2 mb-6
+              div className=w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center
+                BookOpen className=w-5 h-5 text-white 
+              div
+              span className=text-xl font-boldStoryMaker AIspan
+            div
+            p className=text-white40 leading-relaxed mb-6
+              Empowering parents and educators to create magical storytelling experiences powered by next-generation AI.
+            p
+            div className=flex gap-4
+              {[Twitter, Instagram, Facebook, Github].map((Icon, idx) = (
+                div key={idx} className=w-10 h-10 rounded-full bg-white5 border border-white10 flex items-center justify-center hoverbg-white10 cursor-pointer transition-colors
+                  Icon className=w-4 h-4 text-white40 
+                div
+              ))}
+            div
+          div
+
+          div className=grid grid-cols-2 smgrid-cols-3 gap-12
+            div className=space-y-4
+              h4 className=font-bold text-whiteProducth4
+              ul className=space-y-2 text-sm text-white40
+                libutton onClick={() = handleLink('home')} className=hovertext-whiteStory Enginebuttonli
+                libutton onClick={() = handleLink('templates')} className=hovertext-whiteTemplatesbuttonli
+                libutton onClick={() = handleLink('gallery')} className=hovertext-whiteGallerybuttonli
+                libutton onClick={() = handleLink('pricing')} className=hovertext-whitePricingbuttonli
+              ul
+            div
+            div className=space-y-4
+              h4 className=font-bold text-whiteCompanyh4
+              ul className=space-y-2 text-sm text-white40
+                libutton onClick={() = handleLink('about')} className=hovertext-whiteAbout Usbuttonli
+                libutton onClick={() = handleLink('careers')} className=hovertext-whiteCareersbuttonli
+                libutton onClick={() = handleLink('privacy')} className=hovertext-whitePrivacy Policybuttonli
+                libutton onClick={() = handleLink('terms')} className=hovertext-whiteTerms of Servicebuttonli
+              ul
+            div
+            div className=space-y-4
+              h4 className=font-bold text-whiteSupporth4
+              ul className=space-y-2 text-sm text-white40
+                libutton onClick={() = handleLink('help')} className=hovertext-whiteHelp Centerbuttonli
+                libutton onClick={() = handleLink('contact')} className=hovertext-whiteContact Usbuttonli
+                libutton onClick={() = handleLink('status')} className=hovertext-whiteStatusbuttonli
+              ul
+            div
+          div
+        div
+        
+        div className=flex flex-col mdflex-row justify-between items-center gap-8 text-white40 text-xs font-medium pt-10 border-t border-white5
+          p© 2025 StoryMaker AI. All rights reserved.p
+          div className=flex gap-8
+            spanMade for parents with ❤️span
+          div
+        div
+      div
+    footer
+  );
+};
+
+ --- Page Views ---
+
+const HomeView = () = {
+  const [selectedTheme, setSelectedTheme] = useState('friendship');
+  const [complexity, setComplexity] = useState(2);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [storyResult, setStoryResult] = useState(null);
+
+  const handleGenerate = () = {
+    setIsGenerating(true);
+    setProgress(0);
+    setStoryResult(null);
+    
+    const interval = setInterval(() = {
+      setProgress(prev = {
+        if (prev = 100) {
+          clearInterval(interval);
+          setTimeout(() = {
+            setIsGenerating(false);
+            setStoryResult({ title Leo's Space Adventure, text Once upon a time, in a galaxy not so far away... });
+          }, 500);
+          return 100;
+        }
+        return prev + 5;
+      });
+    }, 100);
+  };
+
+  const themes = [
+    { id 'friendship', label 'Friendship', icon Heart },
+    { id 'adventure', label 'Adventure', icon Swords },
+    { id 'learning', label 'Learning', icon GraduationCap },
+    { id 'family', label 'Family', icon Users },
+  ];
+
+  return (
+    
+      section className=relative pt-32 pb-20 px-6 text-center
+        div className=max-w-5xl mx-auto
+          div className=inline-flex items-center gap-2 bg-white5 border border-white10 px-4 py-1.5 rounded-full text-xs font-medium text-white80 mb-8
+            span className=flex h-2 w-2 rounded-full bg-orange-500 animate-pulsespan
+            Version 2.0 Advanced Narrative Engine
+          div
+          h1 className=text-5xl mdtext-7xl font-bold tracking-tight mb-6 bg-gradient-to-b from-white to-white60 bg-clip-text text-transparent leading-[1.1]
+            Transform ideas into br  magical books
+          h1
+          p className=text-lg mdtext-xl text-white60 max-w-2xl mx-auto mb-10
+            Write personalized children's books in seconds. Our AI understands values, 
+            educational milestones, and your child's unique personality.
+          p
+          div className=flex flex-wrap items-center justify-center gap-4
+            button onClick={() = document.getElementById('creator').scrollIntoView({behavior 'smooth'})} className=px-8 py-4 bg-gradient-to-r from-orange-500 to-pink-600 rounded-full font-bold text-lg hoverscale-105 transition-transform flex items-center gap-2 shadow-xl shadow-orange-50020
+              Start Writing Now ChevronRight className=w-5 h-5 
+            button
+            button className=px-8 py-4 bg-white5 border border-white10 rounded-full font-bold text-lg hoverbg-white10 transition-colors flex items-center gap-2
+              Play className=w-4 h-4 fill-white  Watch how it works
+            button
+          div
+        div
+      section
+
+      section id=creator className=max-w-3xl mx-auto px-6 py-20
+        div className=bg-[#121212]50 border border-white10 rounded-[2.5rem] p-8 mdp-10 backdrop-blur-xl relative overflow-hidden
+          {isGenerating && (
+            div className=absolute inset-0 z-20 bg-black80 backdrop-blur-sm flex flex-col items-center justify-center p-12 text-center animate-in fade-in
+              div className=w-full max-w-xs space-y-4
+                Sparkles className=w-12 h-12 text-orange-400 animate-bounce mx-auto 
+                h3 className=text-2xl font-boldCrafting your story...h3
+                div className=h-2 w-full bg-white10 rounded-full overflow-hidden
+                  div className=h-full bg-orange-500 transition-all duration-300 style={{ width `${progress}%` }} 
+                div
+                p className=text-white40 text-sm font-mediumMixing imagination and magicp
+              div
+            div
+          )}
+
+          {storyResult  (
+            div className=animate-in slide-in-from-bottom-4
+              div className=flex justify-between items-center mb-8
+                h2 className=text-3xl font-bold{storyResult.title}h2
+                button onClick={() = setStoryResult(null)} className=text-orange-400 font-bold text-smCreate Anotherbutton
+              div
+              div className=p-8 bg-white5 rounded-2xl border border-white10 text-white80 leading-relaxed mb-10
+                {storyResult.text} span className=animate-pulse_span
+              div
+              div className=grid grid-cols-2 gap-4
+                button className=py-4 bg-white10 rounded-xl font-bold flex items-center justify-center gap-2Download className=w-4 h-4  PDF Exportbutton
+                button className=py-4 bg-orange-500 rounded-xl font-bold flex items-center justify-center gap-2Volume2 className=w-4 h-4  Listen AIbutton
+              div
+            div
+          )  (
+            
+              div className=flex items-center gap-3 mb-10
+                div className=w-10 h-10 bg-orange-50010 rounded-xl flex items-center justify-center border border-orange-50020
+                  Wand2 className=w-5 h-5 text-orange-500 
+                div
+                div
+                  h2 className=text-2xl font-boldStory Engineh2
+                  p className=text-xs text-white40 uppercase tracking-widest font-semibold mt-0.5Proprietary AI Architecturep
+                div
+              div
+
+              div className=space-y-8
+                div className=space-y-3
+                  label className=text-sm font-semibold text-white70Hero's Name & Descriptionlabel
+                  input type=text placeholder=Leo the space-traveling cat className=w-full bg-black40 border border-white5 rounded-2xl px-5 py-4 focusring-2 focusring-orange-50050 outline-none transition-all 
+                div
+                div className=space-y-4
+                  label className=text-sm font-semibold text-white70Core Lessonlabel
+                  div className=grid grid-cols-2 gap-3
+                    {themes.map((theme) = (
+                      button key={theme.id} onClick={() = setSelectedTheme(theme.id)} className={`flex items-center gap-3 px-5 py-4 rounded-2xl border transition-all ${selectedTheme === theme.id  'bg-orange-50010 border-orange-50050 text-orange-400'  'bg-white5 border-white5 text-white50'}`}
+                        theme.icon className=w-4 h-4  span className=text-sm font-medium{theme.label}span
+                      button
+                    ))}
+                  div
+                div
+                div className=space-y-4
+                  div className=flex justify-between items-center text-sm font-semibold text-white70
+                    labelContent Densitylabel
+                    span className=text-xs text-orange-400 uppercase font-black{complexity === 1  'Early Reader'  complexity === 2  'Intermediate'  'Advanced Narrator'}span
+                  div
+                  input type=range min=1 max=3 value={complexity} onChange={(e) = setComplexity(parseInt(e.target.value))} className=w-full h-1.5 bg-white10 rounded-lg appearance-none cursor-pointer accent-orange-500 
+                div
+              div
+              
+              button onClick={handleGenerate} className=w-full mt-10 py-5 bg-gradient-to-r from-orange-500 to-pink-600 rounded-2xl font-bold text-lg hoveropacity-90 shadow-xl shadow-orange-50020 flex items-center justify-center gap-3
+                Sparkles className=w-5 h-5  Generate Magic Story
+              button
+            
+          )}
+        div
+      section
+    
+  );
+};
+
+const TemplatesView = () = {
+  const [filter, setFilter] = useState('All');
+  const categories = ['All', 'Adventure', 'Bedtime', 'Educational'];
+  
+  const templates = [
+    { title The Hero's Journey, cat 'Adventure', desc A classic adventure about overcoming obstacles., color from-blue-50020 },
+    { title Bedtime Wind-down, cat 'Bedtime', desc Soothing narratives for sleep., color from-purple-50020 },
+    { title Scientific Discovery, cat 'Educational', desc Explaining complex concepts simply., color from-orange-50020 },
+    { title Emotional Intelligence, cat 'Educational', desc Identifying and managing feelings., color from-pink-50020 },
+    { title Historical Time-Travel, cat 'Adventure', desc Meet famous figures and learn history., color from-green-50020 }
+  ];
+
+  const filtered = filter === 'All'  templates  templates.filter(t = t.cat === filter);
+
+  return (
+    section className=pt-32 pb-20 px-6 max-w-7xl mx-auto
+      div className=text-center mb-16
+        h1 className=text-4xl mdtext-5xl font-bold mb-6Story Frameworksh1
+        div className=flex justify-center gap-2
+          {categories.map(c = (
+            button 
+              key={c} 
+              onClick={() = setFilter(c)}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${filter === c  'bg-orange-500 text-white'  'bg-white5 border border-white10 text-white50 hovertext-white'}`}
+            
+              {c}
+            button
+          ))}
+        div
+      div
+      div className=grid grid-cols-1 mdgrid-cols-2 lggrid-cols-3 gap-8
+        {filtered.map((template, i) = (
+          div key={i} className={`p-8 rounded-[2rem] border border-white10 bg-gradient-to-br ${template.color} to-transparent hoverscale-[1.02] transition-transform cursor-pointer group`}
+            div className=w-10 h-10 bg-white10 rounded-lg flex items-center justify-center mb-6 group-hoverbg-white20 font-bold text-xs{template.cat[0]}div
+            h3 className=text-xl font-bold mb-2{template.title}h3
+            p className=text-sm text-white50 mb-6{template.desc}p
+            div className=flex items-center gap-2 text-xs font-bold text-orange-400 uppercase tracking-widestSelect Framework ChevronRight className=w-3 h-3 div
+          div
+        ))}
+      div
+    section
+  );
+};
+
+const GalleryView = () = {
+  const [search, setSearch] = useState();
+  const items = [
+    { title Crystal Forest, author Sarah M., pages 12 },
+    { title Ocean Rescue, author James T., pages 8 },
+    { title Fire Dragon, author Elena R., pages 15 },
+    { title Mars Mission, author Sam K., pages 10 },
+    { title The Secret Map, author Maya P., pages 14 }
+  ];
+
+  const filtered = items.filter(i = i.title.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    section className=pt-32 pb-20 px-6 max-w-7xl mx-auto
+      div className=flex flex-col mdflex-row justify-between items-center mb-16 gap-6
+        h1 className=text-4xl font-boldCommunity Libraryh1
+        div className=relative w-full max-w-sm
+          Search className=absolute left-4 top-12 -translate-y-12 w-4 h-4 text-white40 
+          input 
+            type=text 
+            placeholder=Search stories... 
+            value={search}
+            onChange={(e) = setSearch(e.target.value)}
+            className=w-full bg-white5 border border-white10 rounded-full px-12 py-3 text-sm focusring-2 focusring-orange-50050 outline-none 
+          
+        div
+      div
+      div className=grid grid-cols-1 smgrid-cols-2 lggrid-cols-3 gap-8
+        {filtered.map((item, i) = (
+          div key={i} className=group cursor-pointer bg-white5 border border-white10 rounded-[2.5rem] p-8 hoverbg-white10 transition-all
+            div className=aspect-[34] bg-white5 rounded-2xl mb-6 border border-white5 flex items-center justify-center
+              BookOpen className=w-12 h-12 text-white10 group-hoverscale-110 transition-transform 
+            div
+            h3 className=text-xl font-bold mb-1{item.title}h3
+            p className=text-sm text-white40 mb-4By {item.author} • {item.pages} Pagesp
+            div className=flex items-center justify-between pt-4 border-t border-white5
+              div className=flex gap-1 text-orange-400Star className=w-3 h-3 fill-current Star className=w-3 h-3 fill-current Star className=w-3 h-3 fill-current div
+              Heart className=w-4 h-4 text-white20 hovertext-pink-500 cursor-pointer 
+            div
+          div
+        ))}
+      div
+    section
+  );
+};
+
+const PricingView = () = {
+  const [isYearly, setIsYearly] = useState(false);
+
+  return (
+    section className=pt-32 pb-20 px-6 max-w-7xl mx-auto
+      div className=text-center mb-16
+        h1 className=text-4xl mdtext-5xl font-bold mb-6A plan for every familyh1
+        div className=flex items-center justify-center gap-4 mb-10
+          span className={`text-sm font-bold ${!isYearly  'text-white'  'text-white40'}`}Monthlyspan
+          button onClick={() = setIsYearly(!isYearly)} className=w-12 h-6 bg-white10 rounded-full relative p-1 transition-colors
+            div className={`w-4 h-4 bg-orange-500 rounded-full transition-transform ${isYearly  'translate-x-6'  'translate-x-0'}`} 
+          button
+          span className={`text-sm font-bold ${isYearly  'text-white'  'text-white40'}`}Yearly span className=text-orange-400 text-[10px] bg-orange-40010 px-1.5 py-0.5 rounded ml-1SAVE 20%spanspan
+        div
+      div
+      div className=grid grid-cols-1 mdgrid-cols-3 gap-8
+        {[
+          { name Starter, price $0, features [3 Stories per month, Standard Narrative Engine, Web Reading Mode], button Start Free },
+          { name Storyteller, price isYearly  $9.99  $12, features [Unlimited Stories, Advanced Vocabulary Engine, HD PDF Exports, Custom Hero Profiles], button Get Started, highlight true },
+          { name Family Library, price isYearly  $19.99  $24, features [Everything in Storyteller, AI Voice Narration, Up to 5 Child Profiles, Collaborative Writing], button Subscribe Now }
+        ].map((plan, i) = (
+          div key={i} className={`p-10 rounded-[2.5rem] border transition-all ${plan.highlight  'bg-white10 border-orange-50050 shadow-2xl shadow-orange-50010 scale-105 z-10'  'bg-white5 border-white10'}`}
+            h3 className=text-xl font-bold text-white60 mb-2{plan.name}h3
+            div className=flex items-baseline gap-1 mb-8
+              span className=text-4xl font-black{plan.price}span
+              span className=text-white40 font-mediummospan
+            div
+            ul className=space-y-4 mb-10
+              {plan.features.map((f, idx) = (
+                li key={idx} className=flex items-center gap-3 text-sm font-medium text-white70
+                  Check className=w-4 h-4 text-orange-400  {f}
+                li
+              ))}
+            ul
+            button className={`w-full py-4 rounded-2xl font-bold transition-all ${plan.highlight  'bg-orange-500 text-white shadow-xl shadow-orange-50020'  'bg-white10 hoverbg-white20 border border-white10'}`}
+              {plan.button}
+            button
+          div
+        ))}
+      div
+    section
+  );
+};
+
+ --- New Footer Page Views ---
+
+const AboutView = () = (
+  section className=pt-32 pb-20 px-6 max-w-4xl mx-auto
+    div className=inline-flex p-3 bg-orange-50010 rounded-2xl border border-orange-50020 mb-8
+      Users className=text-orange-500 
+    div
+    h1 className=text-5xl font-bold mb-8We believe every child is a storyteller.h1
+    div className=space-y-6 text-white60 leading-relaxed text-lg
+      pStoryMaker AI was founded in 2024 by a team of parents, educators, and engineers who wanted to use technology to strengthen the bond between children and their caregivers through shared narrative.p
+      pOur mission is to provide an accessible, safe, and magical tool that turns screen time into creative time. By leveraging proprietary LLM technology, we ensure every story is safe, age-appropriate, and aligned with educational milestones.p
+      div className=grid grid-cols-2 gap-8 pt-10 border-t border-white5
+        divh4 className=text-white font-bold text-3xl mb-1500k+h4p className=text-smStories Createdpdiv
+        divh4 className=text-white font-bold text-3xl mb-115+h4p className=text-smLanguages Supportedpdiv
+      div
+    div
+  section
+);
+
+const CareersView = () = (
+  section className=pt-32 pb-20 px-6 max-w-5xl mx-auto
+    div className=flex justify-between items-end mb-12
+      div
+        h1 className=text-5xl font-bold mb-4Join the magic.h1
+        p className=text-white40Build the future of childhood creativity.p
+      div
+      div className=bg-orange-50010 text-orange-500 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest3 Openingsdiv
+    div
+    div className=space-y-4
+      {[
+        { role Senior AI Researcher, team Engineering, type Remote },
+        { role Child Development Expert, team Education, type Hybrid (SF) },
+        { role Senior Product Designer, team Design, type Remote }
+      ].map((job, i) = (
+        div key={i} className=group p-8 rounded-[2rem] bg-white5 border border-white10 hoverbg-white10 transition-all flex justify-between items-center cursor-pointer
+          div
+            h3 className=text-xl font-bold mb-1 group-hovertext-orange-400 transition-colors{job.role}h3
+            p className=text-sm text-white40{job.team} • {job.type}p
+          div
+          ArrowLeft className=w-5 h-5 rotate-180 text-white20 group-hovertext-white transition-colors 
+        div
+      ))}
+    div
+  section
+);
+
+const LegalView = ({ title }) = (
+  section className=pt-32 pb-20 px-6 max-w-4xl mx-auto
+    div className=bg-white5 border border-white10 rounded-[3rem] p-12
+      div className=flex items-center gap-3 mb-8 text-white40
+        FileText className=w-5 h-5 
+        span className=text-sm font-bold uppercase tracking-widestLegal Documentspan
+      div
+      h1 className=text-4xl font-bold mb-10{title}h1
+      div className=space-y-8 text-white50 leading-relaxed prose prose-invert max-w-none
+        div
+          h4 className=text-white font-bold mb-3 text-lg1. Data Collectionh4
+          pWe only collect data necessary to provide and improve our storytelling engine. This includes your hero's name, chosen themes, and reading difficulty levels. We do NOT sell your data or your child's data to third parties.p
+        div
+        div
+          h4 className=text-white font-bold mb-3 text-lg2. Content Safetyh4
+          pAll AI-generated output is filtered through three layers of safety protocols to ensure 100% age-appropriateness. Parents have the final say in deleting any content from their private library.p
+        div
+        div
+          h4 className=text-white font-bold mb-3 text-lg3. Subscription Termsh4
+          pSubscription fees are billed at the beginning of each billing cycle. You may cancel at any time through your dashboard. Access to premium features continues until the end of your current cycle.p
+        div
+      div
+    div
+  section
+);
+
+const ContactView = () = {
+  const [status, setStatus] = useState('idle');
+
+  const handleSubmit = (e) = {
+    e.preventDefault();
+    setStatus('sending');
+    setTimeout(() = setStatus('success'), 1500);
+  };
+
+  return (
+    section className=pt-32 pb-20 px-6 max-w-2xl mx-auto
+      div className=text-center mb-12
+        h1 className=text-4xl font-bold mb-4Get in touchh1
+        p className=text-white40Questions Feedback We'd love to hear from you.p
+      div
+
+      {status === 'success'  (
+        div className=bg-green-50010 border border-green-50020 p-12 rounded-[2.5rem] text-center animate-in zoom-in-95
+          div className=w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-[0_0_20px_rgba(34,197,94,0.3)]
+            Check className=w-8 h-8 text-white 
+          div
+          h3 className=text-2xl font-bold mb-2Message Sent!h3
+          p className=text-white60Our team will get back to you within 24 hours.p
+          button onClick={() = setStatus('idle')} className=mt-8 text-orange-400 font-boldSend another messagebutton
+        div
+      )  (
+        form onSubmit={handleSubmit} className=bg-white5 border border-white10 rounded-[2.5rem] p-8 mdp-10 space-y-6 backdrop-blur-xl
+          div className=grid grid-cols-2 gap-4
+            div className=space-y-2
+              label className=text-sm font-bold text-white50First Namelabel
+              input required type=text className=w-full bg-black40 border border-white5 rounded-xl px-4 py-3 outline-none focusring-2 focusring-orange-50050 
+            div
+            div className=space-y-2
+              label className=text-sm font-bold text-white50Email Addresslabel
+              input required type=email className=w-full bg-black40 border border-white5 rounded-xl px-4 py-3 outline-none focusring-2 focusring-orange-50050 
+            div
+          div
+          div className=space-y-2
+            label className=text-sm font-bold text-white50Subjectlabel
+            select className=w-full bg-black40 border border-white5 rounded-xl px-4 py-3 outline-none
+              optionTechnical Supportoption
+              optionBilling Questionoption
+              optionFeedbackoption
+              optionOtheroption
+            select
+          div
+          div className=space-y-2
+            label className=text-sm font-bold text-white50Messagelabel
+            textarea required rows=4 className=w-full bg-black40 border border-white5 rounded-xl px-4 py-3 outline-none focusring-2 focusring-orange-50050 
+          div
+          button type=submit disabled={status === 'sending'} className=w-full py-4 bg-orange-500 rounded-xl font-bold hoverbg-orange-400 transition-colors flex items-center justify-center gap-2
+            {status === 'sending'  Activity className=w-5 h-5 animate-spin   Send Message Mail className=w-4 h-4 }
+          button
+        form
+      )}
+    section
+  );
+};
+
+const StatusView = () = (
+  section className=pt-32 pb-20 px-6 max-w-4xl mx-auto
+    div className=flex justify-between items-center mb-12
+      h1 className=text-4xl font-boldSystem Statush1
+      div className=flex items-center gap-2 text-green-500 bg-green-50010 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest
+        div className=w-2 h-2 bg-green-500 rounded-full animate-pulse  All Systems Operational
+      div
+    div
+    div className=bg-white5 border border-white10 rounded-[2.5rem] divide-y divide-white5 overflow-hidden
+      {[
+        { name Narrative Engine (US-East), status Operational, uptime 99.99% },
+        { name AI Voice API, status Operational, uptime 99.95% },
+        { name PDF Rendering Engine, status Operational, uptime 100% },
+        { name Website & API, status Operational, uptime 99.98% }
+      ].map((s, i) = (
+        div key={i} className=p-8 flex justify-between items-center
+          divh4 className=font-bold text-lg{s.name}h4p className=text-xs text-white40Last 90 days {s.uptime} uptimepdiv
+          span className=text-green-500 text-sm font-bold{s.status}span
+        div
+      ))}
+    div
+    div className=mt-8 bg-orange-5005 border border-orange-50010 rounded-2xl p-6 flex gap-4 items-center
+      Activity className=text-orange-400 
+      p className=text-sm text-white60Currently serving span className=text-white font-bold1,243 concurrent usersspan worldwide with 12ms avg latency.p
+    div
+  section
+);
+
+const HelpView = () = (
+  section className=pt-32 pb-20 px-6 max-w-4xl mx-auto
+    div className=text-center mb-16
+      h1 className=text-5xl font-bold mb-6How can we helph1
+      div className=relative max-w-xl mx-auto
+        Search className=absolute left-4 top-12 -translate-y-12 w-5 h-5 text-white40 
+        input type=text placeholder=Search for articles... className=w-full bg-white5 border border-white10 rounded-2xl px-12 py-4 outline-none focusring-2 focusring-orange-50050 
+      div
+    div
+    div className=grid grid-cols-1 mdgrid-cols-2 gap-6
+      {[
+        { q How do I print my story, a Once your story is generated, click the Download button to get a print-ready CMYK PDF. },
+        { q Is the content safe for kids, a Yes, our AI has strict safety layers designed specifically for children aged 3-12. },
+        { q Can I use my own character names, a Absolutely! The engine works best when you provide specific names and traits. },
+        { q Do you offer family plans, a Yes, the Family Library plan allows up to 5 child profiles under one account. }
+      ].map((faq, i) = (
+        div key={i} className=p-8 bg-white5 border border-white10 rounded-[2rem] hoverbg-white10 transition-colors
+          HelpCircle className=text-orange-400 mb-4 
+          h4 className=font-bold text-lg mb-2{faq.q}h4
+          p className=text-sm text-white50 leading-relaxed{faq.a}p
+        div
+      ))}
+    div
+  section
+);
+
+ --- Main App Component ---
+
+export default function App() {
+  const [view, setView] = useState('home');
+
+  const renderView = () = {
+    switch(view) {
+      case 'templates' return TemplatesView ;
+      case 'gallery' return GalleryView ;
+      case 'pricing' return PricingView ;
+      case 'about' return AboutView ;
+      case 'careers' return CareersView ;
+      case 'privacy' return LegalView title=Privacy Policy ;
+      case 'terms' return LegalView title=Terms of Service ;
+      case 'help' return HelpView ;
+      case 'contact' return ContactView ;
+      case 'status' return StatusView ;
+      default return HomeView ;
+    }
+  };
+
+  return (
+    div className=min-h-screen bg-[#050505] text-white selectionbg-orange-50030 font-sans antialiased
+      div className=fixed inset-0 overflow-hidden pointer-events-none
+        div className=absolute top-0 left-14 w-[60%] h-[60%] bg-purple-90010 blur-[180px] rounded-full opacity-60 animate-pulse 
+        div className=absolute bottom-0 right-14 w-[50%] h-[50%] bg-orange-90010 blur-[180px] rounded-full opacity-40 animate-pulse 
+      div
+
+      Navbar currentView={view} setView={setView} 
+      main className=relative z-10{renderView()}main
+      Footer setView={setView} 
+
+      div className=fixed bottom-6 right-6 z-50
+        div className=bg-[#111]80 border border-white10 px-4 py-2 rounded-2xl flex items-center gap-2 shadow-2xl backdrop-blur-md
+          div className=w-6 h-6 bg-gradient-to-br from-orange-500 to-pink-500 rounded-md flex items-center justify-center font-black text-[10px]Sdiv
+          span className=text-[10px] font-bold text-white50 tracking-widest uppercaseSafe Narrative AI 2.0span
+        div
+      div
+    div
+  );
+}
