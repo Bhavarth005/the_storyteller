@@ -43,6 +43,10 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const activeVersion = project.activeVersion;
 
+    // Safety: parse jsonb fields that may be double-serialized strings
+    const safeJson = (val: unknown) =>
+      typeof val === "string" ? JSON.parse(val) : val;
+
     return NextResponse.json({
       id: project.id,
       title: project.title,
@@ -54,24 +58,24 @@ export async function GET(request: NextRequest, { params }: Params) {
             id: activeVersion.id,
             analysis_status: activeVersion.analysisStatus,
             commit_message: activeVersion.commitMessage,
-            global_characters: activeVersion.globalCharacters,
+            global_characters: safeJson(activeVersion.globalCharacters),
             episodes: activeVersion.episodes.map((ep) => ({
               id: ep.id,
               episode_number: ep.episodeNumber,
               title: ep.title,
               script_content: ep.scriptContent,
-              script_segments: ep.scriptSegments,
-              hook_and_cliffhanger_metrics: ep.hookAndCliffhangerMetrics,
-              optimization_suggestions: ep.optimizationSuggestions,
-              character_appearances: ep.characterAppearances,
+              script_segments: safeJson(ep.scriptSegments),
+              hook_and_cliffhanger_metrics: safeJson(ep.hookAndCliffhangerMetrics),
+              optimization_suggestions: safeJson(ep.optimizationSuggestions),
+              character_appearances: safeJson(ep.characterAppearances),
               continuity_notes: ep.continuityLedger,
             })),
             version_analysis: activeVersion.versionAnalysis
               ? {
-                  overall_engagement_score: activeVersion.versionAnalysis.overallEngagementScore,
-                  average_cliffhanger: activeVersion.versionAnalysis.averageCliffhanger,
-                  emotional_variance_index: activeVersion.versionAnalysis.emotionalVarianceIndex,
-                  radar_metrics: activeVersion.versionAnalysis.radarMetrics,
+                  overall_engagement_score: Number(activeVersion.versionAnalysis.overallEngagementScore) || 0,
+                  average_cliffhanger: Number(activeVersion.versionAnalysis.averageCliffhanger) || 0,
+                  emotional_variance_index: Number(activeVersion.versionAnalysis.emotionalVarianceIndex) || 0,
+                  radar_metrics: safeJson(activeVersion.versionAnalysis.radarMetrics),
                 }
               : null,
           }

@@ -30,7 +30,7 @@ type OptimizationSuggestion = {
   priority?: string;
 };
 
-type HoverState = {
+type PinnedTooltip = {
   segment: ScriptSegment;
   segmentIndex: number;
   severity: RetentionSeverity;
@@ -41,13 +41,13 @@ type HoverState = {
 };
 
 function segmentSeverity(segment: ScriptSegment): RetentionSeverity | null {
-  if (segment.drop_probability > 0.7) return "risk";
-  if (segment.drop_probability > 0.4) return "warning";
+  if (segment.drop_probability >= 0.75) return "risk";
+  if (segment.drop_probability >= 0.5) return "warning";
   return null;
 }
 
 function normalizeTextForMatching(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function buildNormalizedDocTextMap(editor: NonNullable<ReturnType<typeof useEditor>>) {
@@ -69,7 +69,7 @@ function buildNormalizedDocTextMap(editor: NonNullable<ReturnType<typeof useEdit
         continue;
       }
 
-      normalizedText += char;
+      normalizedText += char.toLowerCase();
       normalizedIndexToDocPos.push(pos + i);
       previousWasSpace = false;
     }
@@ -97,13 +97,21 @@ function findSegmentTextMatchIndex(
   if (!normalizedSegmentText) return -1;
 
   const docLength = normalizedDoc.length;
-  const windowRadius = Math.max(120, Math.floor(docLength * 0.08));
+  const windowRadius = Math.max(120, Math.floor(docLength * 0.15));
   const windowStart = Math.max(0, predictedStart - windowRadius);
   const windowEnd = Math.min(docLength, predictedStart + windowRadius);
 
   const windowText = normalizedDoc.slice(windowStart, windowEnd);
   const localIndex = windowText.indexOf(normalizedSegmentText);
   if (localIndex >= 0) return windowStart + localIndex;
+
+  // Try first 8 words as a shorter match key
+  const words = normalizedSegmentText.split(" ");
+  if (words.length > 8) {
+    const shortKey = words.slice(0, 8).join(" ");
+    const shortIdx = normalizedDoc.indexOf(shortKey);
+    if (shortIdx >= 0) return shortIdx;
+  }
 
   return normalizedDoc.indexOf(normalizedSegmentText);
 }
@@ -137,6 +145,25 @@ function computeWordChunkRanges(
   }
 
   return ranges;
+}
+
+/** Pick the N most risky segments to highlight, capped to avoid full-text highlighting. */
+function pickSegmentsToHighlight(
+  segments: ScriptSegment[],
+  maxHighlights: number = 3,
+): Set<number> {
+  const risky = segments
+    .map((seg, idx) => ({ seg, idx }))
+    .filter(({ seg }) => segmentSeverity(seg) !== null)
+    .sort((a, b) => b.seg.drop_probability - a.seg.drop_probability);
+
+  // If only a few segments are risky, highlight all of them.
+  // If many are risky, cap to the worst N to avoid "whole paragraph" highlighting.
+  const limit = risky.length <= Math.ceil(segments.length * 0.5)
+    ? risky.length
+    : maxHighlights;
+
+  return new Set(risky.slice(0, limit).map(({ idx }) => idx));
 }
 
 export function ScriptEditor({
@@ -178,9 +205,7 @@ export function ScriptEditor({
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
-  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isOverTooltipRef = useRef(false);
-  const [hoverState, setHoverState] = useState<HoverState | null>(null);
+  const [pinnedTooltip, setPinnedTooltip] = useState<PinnedTooltip | null>(null);
 
   const suggestionsBySegment = useMemo(() => {
     const map = new Map<number, OptimizationSuggestion>();
@@ -191,6 +216,7 @@ export function ScriptEditor({
     return map;
   }, [optimizationSuggestions]);
 
+  // ─── Apply highlight marks to the editor ───────────────────────────────────
   useEffect(() => {
     if (!editor || !segments || segments.length === 0) return;
 
@@ -202,10 +228,13 @@ export function ScriptEditor({
     if (docLength === 0 || normalizedIndexToDocPos.length === 0) return;
 
     const wordChunkRanges = computeWordChunkRanges(normalizedText, normalizedIndexToDocPos, segments.length);
+    const highlightSet = pickSegmentsToHighlight(segments);
 
     let tr = editor.state.tr.removeMark(1, editor.state.doc.content.size, markType);
 
     for (const [segmentIndex, seg] of segments.entries()) {
+      if (!highlightSet.has(segmentIndex)) continue;
+
       const severity = segmentSeverity(seg);
       if (!severity) continue;
 
@@ -259,108 +288,94 @@ export function ScriptEditor({
     }
 
     editor.view.dispatch(tr);
-    setHoverState(null);
+    setPinnedTooltip(null);
   }, [editor, segments, suggestionsBySegment, explanation?.optimization_rationale]);
 
-  const scheduleClose = useCallback(() => {
-    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
-    closeTimeoutRef.current = setTimeout(() => {
-      if (!isOverTooltipRef.current) setHoverState(null);
-    }, 200);
-  }, []);
-
-  const cancelClose = useCallback(() => {
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
-  }, []);
-
-  const handleMouseMove = useCallback(
+  // ─── Click handler: open tooltip pinned to a mark ──────────────────────────
+  const handleMarkClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!segments || segments.length === 0 || !wrapperRef.current) {
-        scheduleClose();
-        return;
-      }
+      if (!segments || segments.length === 0 || !wrapperRef.current) return;
 
       const target = event.target as HTMLElement | null;
       const mark = target?.closest("mark[data-retention-highlight]") as HTMLElement | null;
       if (!mark) {
-        scheduleClose();
+        // Clicked outside any mark — close tooltip
+        setPinnedTooltip(null);
         return;
       }
-
-      cancelClose();
 
       const segmentIndex = Number(mark.dataset.segmentIndex);
-      if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || segmentIndex >= segments.length) {
-        scheduleClose();
-        return;
-      }
+      if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || segmentIndex >= segments.length) return;
 
       const wrapperRect = wrapperRef.current.getBoundingClientRect();
       const markRect = mark.getBoundingClientRect();
-      const anchorLeft = markRect.left + markRect.width / 2 - wrapperRect.left;
+
+      // Anchor horizontally to the mark center, vertically above the mark top
+      const rawLeft = markRect.left + markRect.width / 2 - wrapperRect.left;
+      // Clamp so tooltip doesn't overflow the wrapper horizontally
+      const anchorLeft = Math.max(210, Math.min(rawLeft, wrapperRect.width - 210));
       const anchorTop = markRect.top - wrapperRect.top;
 
-      setHoverState((prev) => {
-        if (prev?.segmentIndex === segmentIndex) return prev;
-        return {
-          segment: segments[segmentIndex],
-          segmentIndex,
-          severity: (mark.dataset.severity as RetentionSeverity) ?? segmentSeverity(segments[segmentIndex]) ?? "warning",
-          reason: mark.dataset.reason ?? null,
-          suggestion: mark.dataset.suggestion ?? null,
-          anchorTop,
-          anchorLeft,
-        };
+      setPinnedTooltip({
+        segment: segments[segmentIndex],
+        segmentIndex,
+        severity:
+          (mark.dataset.severity as RetentionSeverity) ??
+          segmentSeverity(segments[segmentIndex]) ??
+          "warning",
+        reason: mark.dataset.reason ?? null,
+        suggestion: mark.dataset.suggestion ?? null,
+        anchorTop,
+        anchorLeft,
       });
     },
-    [segments, scheduleClose, cancelClose],
+    [segments],
   );
 
+  // ─── Close tooltip on click outside ────────────────────────────────────────
   useEffect(() => {
-    if (!hoverState) return;
+    if (!pinnedTooltip) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
+      // Don't close if clicking inside the tooltip (allows button clicks)
       if (tooltipRef.current?.contains(target)) return;
+      // Don't close if clicking on another mark (handleMarkClick will update)
       if (
         wrapperRef.current?.contains(target) &&
         (event.target as HTMLElement)?.closest("mark[data-retention-highlight]")
-      ) {
-        return;
-      }
-      setHoverState(null);
+      ) return;
+      setPinnedTooltip(null);
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [hoverState]);
+  }, [pinnedTooltip]);
 
+  // ─── Resolve suggestion text for the pinned segment ────────────────────────
   const hoveredSuggestion = useMemo(() => {
-    if (!hoverState) return null;
+    if (!pinnedTooltip) return null;
     return (
-      suggestionsBySegment.get(hoverState.segmentIndex) ??
+      suggestionsBySegment.get(pinnedTooltip.segmentIndex) ??
       optimizationSuggestions?.find(
         (s) =>
           s.target_time_sec != null &&
-          s.target_time_sec >= hoverState.segment.start_sec &&
-          s.target_time_sec < hoverState.segment.end_sec,
+          s.target_time_sec >= pinnedTooltip.segment.start_sec &&
+          s.target_time_sec < pinnedTooltip.segment.end_sec,
       ) ??
       null
     );
-  }, [hoverState, optimizationSuggestions, suggestionsBySegment]);
+  }, [pinnedTooltip, optimizationSuggestions, suggestionsBySegment]);
 
   const reasonText =
-    hoverState?.reason ??
+    pinnedTooltip?.reason ??
     hoveredSuggestion?.reason ??
     hoveredSuggestion?.issue ??
     explanation?.retention_risk_reason ??
     null;
 
   const suggestionText =
-    hoverState?.suggestion ??
+    pinnedTooltip?.suggestion ??
     hoveredSuggestion?.suggestion ??
     explanation?.optimization_rationale ??
     null;
@@ -369,33 +384,22 @@ export function ScriptEditor({
     <div
       ref={wrapperRef}
       className={cn("relative", className)}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => {
-        if (!isOverTooltipRef.current) scheduleClose();
-      }}
+      onClick={handleMarkClick}
     >
-      {hoverState && (
+      {pinnedTooltip && (
         <div
-          className="absolute z-50"
+          className="absolute z-50 pointer-events-auto"
           style={{
-            top: hoverState.anchorTop - 8,
-            left: hoverState.anchorLeft,
+            top: pinnedTooltip.anchorTop - 8,
+            left: pinnedTooltip.anchorLeft,
             transform: "translate(-50%, -100%)",
-          }}
-          onMouseEnter={() => {
-            isOverTooltipRef.current = true;
-            cancelClose();
-          }}
-          onMouseLeave={() => {
-            isOverTooltipRef.current = false;
-            scheduleClose();
           }}
         >
           <Card ref={tooltipRef} className="pointer-events-auto w-[min(420px,calc(100vw-2rem))] shadow-lg">
             <CardHeader className="py-3">
               <CardTitle className="flex items-center justify-between gap-2 text-sm">
                 <span className="flex items-center gap-2">
-                  {hoverState.severity === "risk" ? (
+                  {pinnedTooltip.severity === "risk" ? (
                     <AlertTriangle className="h-4 w-4 text-destructive" />
                   ) : (
                     <Info className="h-4 w-4 text-yellow-600" />
@@ -405,7 +409,10 @@ export function ScriptEditor({
                 <button
                   type="button"
                   className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                  onClick={() => setHoverState(null)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPinnedTooltip(null);
+                  }}
                   aria-label="Close insight"
                 >
                   <X className="h-4 w-4" />
@@ -416,12 +423,13 @@ export function ScriptEditor({
               <div className="space-y-1 text-muted-foreground">
                 <div>
                   <span className="font-medium text-foreground">Window:</span>{" "}
-                  {hoverState.segment.start_sec}s-{hoverState.segment.end_sec}s <span className="font-medium text-foreground">Drop:</span>{" "}
-                  {Math.round(hoverState.segment.drop_probability * 100)}%
+                  {pinnedTooltip.segment.start_sec}s-{pinnedTooltip.segment.end_sec}s{" "}
+                  <span className="font-medium text-foreground">Drop:</span>{" "}
+                  {Math.round(pinnedTooltip.segment.drop_probability * 100)}%
                 </div>
                 <div>
                   <span className="font-medium text-foreground">Emotion:</span>{" "}
-                  {hoverState.segment.emotion}
+                  {pinnedTooltip.segment.emotion}
                 </div>
               </div>
 
@@ -448,7 +456,10 @@ export function ScriptEditor({
                   size="sm"
                   variant="secondary"
                   disabled={!onApplyAiFix || isApplyingAiFix}
-                  onClick={() => onApplyAiFix?.(hoverState.segment)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onApplyAiFix?.(pinnedTooltip.segment);
+                  }}
                 >
                   <Sparkles className={isApplyingAiFix ? "animate-spin" : ""} />
                   {isApplyingAiFix ? "Applying..." : "Apply AI Fix"}

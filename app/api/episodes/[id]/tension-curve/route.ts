@@ -37,8 +37,14 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
-    const segments = (episode.scriptSegments ?? []) as RawSegment[];
-    const metrics = episode.hookAndCliffhangerMetrics as { threat_level?: number } | null;
+    const rawSegments = typeof episode.scriptSegments === "string"
+      ? JSON.parse(episode.scriptSegments)
+      : episode.scriptSegments;
+    const segments = (rawSegments ?? []) as RawSegment[];
+    const rawMetrics = typeof episode.hookAndCliffhangerMetrics === "string"
+      ? JSON.parse(episode.hookAndCliffhangerMetrics)
+      : episode.hookAndCliffhangerMetrics;
+    const metrics = rawMetrics as { threat_level?: number } | null;
     const threatLevel = metrics?.threat_level ?? 0.5;
 
     const curve = calculateTensionCurve(segments, threatLevel);

@@ -33,15 +33,19 @@ export async function GET(request: NextRequest, { params }: Params) {
       );
     }
 
+    // Safety: parse jsonb fields that may be double-serialized strings
+    const safeJson = (val: unknown) =>
+      typeof val === "string" ? JSON.parse(val) : val;
+
     return NextResponse.json({
       id: episode.id,
       version_id: episode.versionId,
       episode_number: episode.episodeNumber,
       title: episode.title,
       script_content: episode.scriptContent,
-      script_segments: episode.scriptSegments,
-      hook_and_cliffhanger_metrics: episode.hookAndCliffhangerMetrics,
-      optimization_suggestions: episode.optimizationSuggestions,
+      script_segments: safeJson(episode.scriptSegments),
+      hook_and_cliffhanger_metrics: safeJson(episode.hookAndCliffhangerMetrics),
+      optimization_suggestions: safeJson(episode.optimizationSuggestions),
     });
   } catch (error) {
     console.error("GET /api/episodes/[id] error:", error);

@@ -5,7 +5,7 @@ import { motion } from "framer-motion"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Sparkles, ChevronLeft, ChevronRight, Loader2, Wand2, Save, RefreshCw } from "lucide-react"
+import { ArrowLeft, ChevronLeft, ChevronRight, Loader2, Wand2, Save, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { use, useEffect, useRef } from "react"
@@ -24,7 +24,6 @@ import { useProjectStore } from "@/src/store/useProjectStore"
 import { useRegenerateEpisode } from "@/src/hooks/useRegenerateEpisode"
 import { ScriptEditor } from "@/src/components/editor/ScriptEditor"
 import { EpisodeHeatmap } from "@/src/components/heatmaps/EpisodeHeatmap"
-import { TensionCurveChart } from "@/src/components/charts/TensionCurveChart"
 
 export default function EpisodeWorkspacePage({
   params,
@@ -60,7 +59,7 @@ export default function EpisodeWorkspacePage({
   })
 
   // ---------- Data: tension curve ----------
-  const { data: tensionData } = useQuery({
+  useQuery({
     queryKey: ["tensionCurve", episodeId],
     queryFn: () => getEpisodeTensionCurve(episodeId!),
     enabled: !!episodeId,
@@ -281,21 +280,6 @@ export default function EpisodeWorkspacePage({
         {/* Right Panel - Intelligence Dashboard (30%) */}
         <div className="flex-[3] bg-[#0a0c10]/50 overflow-auto">
           <div className="p-6 space-y-6">
-            {/* Narrative Tension Curve */}
-            <div className="glass-card rounded-xl p-4">
-              <h3 className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wider flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-400" />
-                Narrative Tension Curve
-              </h3>
-              {tensionData?.curve && tensionData.curve.length > 0 ? (
-                <TensionCurveChart data={tensionData.curve} />
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-8">
-                  Tension curve not available yet.
-                </p>
-              )}
-            </div>
-
             {/* AI Commentary - from explain endpoint */}
             {explanation && (
               <div className="space-y-3">
