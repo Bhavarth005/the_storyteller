@@ -3,8 +3,9 @@
 import { motion, AnimatePresence } from "framer-motion"
 import { X, ArrowRight, TrendingUp, TrendingDown, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { compareVersions, rollbackVersion } from "@/src/lib/api"
+import { compareVersions, getVersion, rollbackVersion } from "@/src/lib/api"
 import { toast } from "sonner"
 
 interface VersionDiffModalProps {
@@ -36,6 +37,18 @@ export function VersionDiffModal({
     enabled: isOpen && !!baseVersionId && !!targetVersionId,
   })
 
+  const { data: baseVersion, isLoading: baseLoading } = useQuery({
+    queryKey: ["version", baseVersionId],
+    queryFn: () => getVersion(baseVersionId),
+    enabled: isOpen && !!baseVersionId,
+  })
+
+  const { data: targetVersion, isLoading: targetLoading } = useQuery({
+    queryKey: ["version", targetVersionId],
+    queryFn: () => getVersion(targetVersionId),
+    enabled: isOpen && !!targetVersionId,
+  })
+
   const rollback = useMutation({
     mutationFn: () => rollbackVersion({ project_id: projectId, target_version_id: baseVersionId }),
     onSuccess: () => {
@@ -48,6 +61,7 @@ export function VersionDiffModal({
   })
 
   const deltas = data?.deltas
+  const versionsLoading = baseLoading || targetLoading
   const metrics = deltas
     ? [
         { name: "Overall Engagement", delta: deltas.overall_engagement },
@@ -55,6 +69,19 @@ export function VersionDiffModal({
         { name: "Retention Stability", delta: deltas.retention_stability },
       ]
     : []
+
+  const scriptDiffRows = (baseVersion?.episodes ?? []).map((baseEpisode) => {
+    const currentEpisode = (targetVersion?.episodes ?? []).find(
+      (ep) => ep.episode_number === baseEpisode.episode_number,
+    )
+    return {
+      episodeNumber: baseEpisode.episode_number,
+      baseTitle: baseEpisode.title,
+      targetTitle: currentEpisode?.title ?? baseEpisode.title,
+      previousScript: baseEpisode.script_content,
+      currentScript: currentEpisode?.script_content ?? "",
+    }
+  })
 
   return (
     <AnimatePresence>
@@ -95,9 +122,11 @@ export function VersionDiffModal({
                 </div>
               </div>
 
-              {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
+              {isLoading || versionsLoading ? (
+                <div className="space-y-3 py-4">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -131,6 +160,39 @@ export function VersionDiffModal({
                       </motion.div>
                     )
                   })}
+
+                  {scriptDiffRows.length > 0 ? (
+                    <div className="mt-6">
+                      <h3 className="text-sm font-medium text-muted-foreground mb-3">Script Diff (Previous vs Current)</h3>
+                      <div className="space-y-4 max-h-[320px] overflow-y-auto pr-1">
+                        {scriptDiffRows.map((row) => (
+                          <div key={row.episodeNumber} className="rounded-xl border border-white/10 p-3">
+                            <div className="text-xs text-muted-foreground mb-2">
+                              Episode {row.episodeNumber}: {row.baseTitle}
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="rounded-lg bg-white/5 p-3">
+                                <div className="text-xs text-muted-foreground mb-1">Previous Version</div>
+                                <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">
+                                  {row.previousScript || "No script content available."}
+                                </p>
+                              </div>
+                              <div className="rounded-lg bg-cyan-400/5 p-3">
+                                <div className="text-xs text-cyan-300 mb-1">Current Version</div>
+                                <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">
+                                  {row.currentScript || "No script content available."}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-white/10 p-4 text-sm text-muted-foreground">
+                      No episode scripts available for comparison.
+                    </div>
+                  )}
                 </div>
               )}
 

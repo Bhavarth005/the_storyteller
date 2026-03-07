@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Sparkles, ChevronLeft, ChevronRight, Loader2, Wand2, Save, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { use, useEffect, useRef } from "react"
 import { toast } from "sonner"
 
@@ -128,6 +129,15 @@ export default function EpisodeWorkspacePage({
   }, [episode])
 
   const explanation = explainData?.explanations
+  const heatmapDurationSec = Math.max(90, (segments.length > 0 ? segments.length : 9) * 10)
+  const cliffhangerRaw = hookMetrics?.cliffhanger_score ?? 0
+  const cliffhangerNormalized = cliffhangerRaw <= 1 ? cliffhangerRaw * 10 : cliffhangerRaw
+  const cliffhangerScore = Math.min(Math.max(cliffhangerNormalized, 0), 10)
+  const maxDropProbability = segments.length > 0
+    ? Math.max(0, ...segments.map((s) => s.drop_probability ?? 0))
+    : 0
+  const retentionRiskScore = Math.min(10, Math.max(0, Math.round((1 - maxDropProbability) * 100) / 10))
+  const optimizationScore = Math.min(10, Math.max(0, 10 - optimizationSuggestions.length))
 
   // ---------- Local editable script content ----------
   const editedContentRef = useRef<string | null>(null)
@@ -230,7 +240,7 @@ export default function EpisodeWorkspacePage({
             <span className="text-xs text-muted-foreground">Timeline Heatmap</span>
             {segments.length > 0 && (
               <span className="text-xs text-muted-foreground">
-                0s – {segments[segments.length - 1].end_sec}s
+                0s - {heatmapDurationSec}s
               </span>
             )}
           </div>
@@ -239,10 +249,10 @@ export default function EpisodeWorkspacePage({
             <div className="flex justify-between mt-1">
               <span className="text-xs text-muted-foreground">0s</span>
               <span className="text-xs text-muted-foreground">
-                {Math.round(segments[segments.length - 1].end_sec / 2)}s
+                {Math.round(heatmapDurationSec / 2)}s
               </span>
               <span className="text-xs text-muted-foreground">
-                {segments[segments.length - 1].end_sec}s
+                {heatmapDurationSec}s
               </span>
             </div>
           )}
@@ -302,17 +312,18 @@ export default function EpisodeWorkspacePage({
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-foreground font-medium text-sm">Cliffhanger Logic</span>
                       {hookMetrics && (
-                        <span
-                          className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                            hookMetrics.cliffhanger_score >= 0.7
+                        <Badge
+                          variant="secondary"
+                          className={`text-xs font-medium ${
+                            cliffhangerScore >= 7
                               ? "bg-cyan-400/20 text-cyan-400"
-                              : hookMetrics.cliffhanger_score >= 0.5
+                              : cliffhangerScore >= 5
                               ? "bg-amber-400/20 text-amber-400"
                               : "bg-red-400/20 text-red-400"
                           }`}
                         >
-                          {Math.round(hookMetrics.cliffhanger_score * 10)}/10
-                        </span>
+                          {cliffhangerScore.toFixed(1)}/10
+                        </Badge>
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
@@ -328,7 +339,18 @@ export default function EpisodeWorkspacePage({
                     transition={{ delay: 0.1 }}
                     className="glass-card rounded-lg p-4"
                   >
-                    <span className="text-foreground font-medium text-sm">Retention Risk</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-foreground font-medium text-sm">Retention Risk</span>
+                      <Badge variant="secondary" className={`text-xs font-medium ${
+                        retentionRiskScore >= 7
+                          ? "bg-cyan-400/20 text-cyan-400"
+                          : retentionRiskScore >= 5
+                          ? "bg-amber-400/20 text-amber-400"
+                          : "bg-red-400/20 text-red-400"
+                      }`}>
+                        {retentionRiskScore.toFixed(1)}/10
+                      </Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground leading-relaxed mt-2">
                       {explanation.retention_risk_reason}
                     </p>
@@ -342,7 +364,18 @@ export default function EpisodeWorkspacePage({
                     transition={{ delay: 0.2 }}
                     className="glass-card rounded-lg p-4"
                   >
-                    <span className="text-foreground font-medium text-sm">Optimization Rationale</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-foreground font-medium text-sm">Optimization Rationale</span>
+                      <Badge variant="secondary" className={`text-xs font-medium ${
+                        optimizationScore >= 7
+                          ? "bg-cyan-400/20 text-cyan-400"
+                          : optimizationScore >= 5
+                          ? "bg-amber-400/20 text-amber-400"
+                          : "bg-red-400/20 text-red-400"
+                      }`}>
+                        {optimizationScore.toFixed(1)}/10
+                      </Badge>
+                    </div>
                     <p className="text-xs text-muted-foreground leading-relaxed mt-2">
                       {explanation.optimization_rationale}
                     </p>
@@ -357,7 +390,7 @@ export default function EpisodeWorkspacePage({
                 <h3 className="text-sm font-medium text-muted-foreground mb-3">Episode Metrics</h3>
                 <div className="space-y-2">
                   <MetricRow label="Hook Strength" value={hookMetrics.hook_strength} />
-                  <MetricRow label="Cliffhanger Score" value={hookMetrics.cliffhanger_score} />
+                  <MetricRow label="Cliffhanger Score" value={cliffhangerScore} isTenScale />
                   <MetricRow label="Open Loops" value={hookMetrics.open_loops} isRaw />
                   <MetricRow label="Threat Level" value={hookMetrics.threat_level} />
                 </div>
@@ -414,10 +447,17 @@ export default function EpisodeWorkspacePage({
 }
 
 /** Small metric display row */
-function MetricRow({ label, value, isRaw }: { label: string; value: number; isRaw?: boolean }) {
-  const display = isRaw ? value : Math.round(value * 100) + "%"
+function MetricRow({ label, value, isRaw, isTenScale }: { label: string; value: number; isRaw?: boolean; isTenScale?: boolean }) {
+  const safeTenScale = Math.min(Math.max(value, 0), 10)
+  const display = isRaw ? value : isTenScale ? `${safeTenScale.toFixed(1)}/10` : Math.round(value * 100) + "%"
   const color = isRaw
     ? "text-foreground"
+    : isTenScale
+    ? safeTenScale >= 7
+      ? "text-cyan-400"
+      : safeTenScale >= 5
+      ? "text-amber-400"
+      : "text-red-400"
     : value >= 0.7
     ? "text-cyan-400"
     : value >= 0.5

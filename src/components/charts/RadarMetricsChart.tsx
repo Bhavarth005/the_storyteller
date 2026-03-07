@@ -21,17 +21,22 @@ const LABELS: Record<keyof RadarMetrics, string> = {
   retention_stability: "Stability",
 };
 
-export function RadarMetricsChart({ metrics }: { metrics: RadarMetrics }) {
+export function RadarMetricsChart({ metrics }: { metrics?: Partial<RadarMetrics> | null }) {
+  const safeMetrics = metrics ?? {};
   const data = (Object.keys(LABELS) as Array<keyof RadarMetrics>).map((k) => ({
     key: k,
     label: LABELS[k],
-    value: metrics[k],
+    value: Number.isFinite(safeMetrics[k]) ? safeMetrics[k]! : 0,
   }));
 
   return (
     <div className="h-56 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart data={data} outerRadius="75%">
+        <RadarChart
+          data={data}
+          outerRadius={80}
+          margin={{ top: 20, right: 30, bottom: 20, left: 30 }}
+        >
           <PolarGrid opacity={0.2} />
           <PolarAngleAxis dataKey="label" tick={{ fontSize: 12 }} />
           <Tooltip

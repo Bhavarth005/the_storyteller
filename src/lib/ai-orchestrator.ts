@@ -161,22 +161,29 @@ export async function generateStoryArc(
     model: heavyModel,
     schema: StoryArcSchema,
     prompt: [
-      `You are a showrunner planning a serialized narrative titled "${title}".`,
-      "Transform the premise into global characters and a clear episode-by-episode arc.",
-      `Premise:\n${rawStory}`,
-      `Return exactly ${episodeCount} episode_goals with sequential episode_number fields from 1 to ${episodeCount}.`,
-      "Keep each narrative_goal concise (under 25 words) and avoid duplicating beats.",
-      "Ensure global_characters include distinct roles and traits that recur across the series.",
-    ].join("\n\n"),
+      `You are a master showrunner designing a ${episodeCount}-episode serialized vertical short-form series titled "${title}".`,
+      "Each episode is exactly 90 seconds (~150 words). Viewers can swipe away at any moment.",
+      "",
+      "STORY PREMISE:",
+      rawStory,
+      "",
+      `Design exactly ${episodeCount} episodes. For each episode's narrative_goal, include:`,
+      "1. The HOOK — what happens in the first 10 seconds that creates immediate curiosity",
+      "2. The CORE BEAT — the single most important thing that happens",
+      "3. The CLIFFHANGER — the last 10 seconds, an unresolved tension that demands the next episode",
+      "",
+      "Format each narrative_goal as: '[HOOK: ...] [BEAT: ...] [CLIFFHANGER: ...]'",
+      "Keep each section under 15 words. Make the cliffhanger physically or emotionally painful to leave unresolved.",
+      "",
+      "For global_characters: include only characters who appear in 3+ episodes. Give each distinct traits.",
+      `Return exactly ${episodeCount} episode_goals numbered 1 to ${episodeCount}.`,
+    ].join("\n"),
   });
 
   const parsed = StoryArcSchema.parse(object);
   if (parsed.episode_goals.length !== episodeCount) {
-    throw new Error(
-      `Expected ${episodeCount} episode_goals but received ${parsed.episode_goals.length}.`
-    );
+    throw new Error(`Expected ${episodeCount} episode_goals but received ${parsed.episode_goals.length}.`);
   }
-
   return parsed;
 }
 
@@ -193,19 +200,32 @@ export async function generateEpisodeScript(
 ): Promise<EpisodeGeneration> {
   const worldState = previousLedger
     ? JSON.stringify(previousLedger, null, 2)
-    : "None — this is the opening episode.";
+    : "None — this is the opening episode. Establish world and protagonist immediately.";
 
   const { object } = await generateObject({
     model: heavyModel,
     schema: EpisodeGenerationSchema,
     prompt: [
-      `You are writing Episode ${episodeNumber} of a serialized show.`,
-      `Episode goal: ${episodeGoal}`,
-      "Write a tight, visual script around ~150 words (about 90 seconds of screen time).",
-      "Return the script_content and an updated continuity_ledger capturing new facts and relationship shifts.",
-      "Keep the ledger succinct (≤5 facts and ≤5 relationships) and ensure names align with prior episodes.",
-      `World State (continuity ledger from previous episodes):\n${worldState}`,
-    ].join("\n\n"),
+      `Write Episode ${episodeNumber} of a serialized short-form series.`,
+      "",
+      "EPISODE BLUEPRINT:",
+      episodeGoal,
+      "",
+      "HARD RULES:",
+      "- script_content must be 140-160 words. Count carefully.",
+      "- Write in present tense. Visual action description. No dialogue tags.",
+      "- First 25 words: execute the HOOK from the blueprint. Start mid-action, never with setup.",
+      "- Middle section: execute the CORE BEAT. One clear escalation.",
+      "- Last 20 words: execute the CLIFFHANGER from the blueprint exactly. End on the sharpest possible beat.",
+      "- NEVER start with 'Previously...' or any recap.",
+      "- NEVER resolve the prior episode's cliffhanger in the first sentence.",
+      "",
+      "WORLD STATE (honor this exactly — no contradictions):",
+      worldState,
+      "",
+      "After writing the script, update the continuity_ledger with any new facts, secrets revealed, or relationship changes introduced in THIS episode only.",
+      "Keep ledger concise: max 5 information_state facts, max 5 relationships.",
+    ].join("\n"),
   });
 
   return EpisodeGenerationSchema.parse(object);
@@ -217,83 +237,99 @@ export async function generateEpisodeScript(
  * Analyzes script content and returns emotion + intensity for each 10-sec segment.
  * TODO: Replace with roberta-base-go_emotions API call.
  */
+const HF_MODEL_URL = "https://router.huggingface.co/hf-inference/models/SamLowe/roberta-base-go_emotions";
+
+const EMOTION_WEIGHTS: Record<string, number> = {
+  neutral: 0.05,
+  approval: 0.2,
+  realization: 0.55,
+  curiosity: 0.7,
+  nervousness: 0.75,
+  disapproval: 0.5,
+  annoyance: 0.45,
+  surprise: 0.8,
+  anger: 0.85,
+  fear: 0.9,
+  excitement: 0.9,
+  sadness: 0.6,
+  grief: 0.85,
+  disgust: 0.65,
+};
+
+async function callHuggingFaceWithRetry(
+  inputs: string[],
+  maxRetries = 3
+): Promise<Array<Array<{ label: string; score: number }>>> {
+  const apiKey = process.env.HUGGINGFACE_API_KEY;
+  if (!apiKey) throw new Error("Missing HUGGINGFACE_API_KEY");
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const response = await fetch(HF_MODEL_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inputs,
+        parameters: { top_k: 5 },
+        options: { wait_for_model: true, use_cache: false },
+      }),
+    });
+
+    // 503 = model loading (cold start) — wait and retry
+    if (response.status === 503) {
+      const waitMs = (attempt + 1) * 8000;
+      console.log(`[HuggingFace] Model loading, waiting ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
+      await new Promise(r => setTimeout(r, waitMs));
+      continue;
+    }
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`HuggingFace request failed (${response.status}): ${body}`);
+    }
+
+    const raw = await response.json() as unknown;
+    if (!Array.isArray(raw)) throw new Error("Unexpected HuggingFace response shape.");
+
+    // Normalize: batched returns array of arrays, single returns flat array
+    const normalized: Array<Array<{ label: string; score: number }>> =
+      Array.isArray(raw[0]) ? raw as Array<Array<{ label: string; score: number }>> : [raw as Array<{ label: string; score: number }>];
+
+    return normalized;
+  }
+
+  throw new Error(`HuggingFace call failed after ${maxRetries} retries.`);
+}
+
 export async function analyzeEpisodeSentiment(
   scriptContent: string
 ): Promise<SentimentAnalysis> {
   const chunks = buildWordChunks(stripHtml(scriptContent));
-  const inputs = chunks.map((chunk) => chunk.text);
+  const inputs = chunks.map(c => c.text).filter(t => t.trim().length > 3);
 
-  const huggingFaceApiKey = process.env.HUGGINGFACE_API_KEY;
-  if (!huggingFaceApiKey) {
-    throw new Error("HUGGINGFACE_API_KEY is not set.");
-  }
+  const predictions = await callHuggingFaceWithRetry(inputs);
 
-  // Use one batched HF inference request with an array of chunk inputs.
-  const response = await fetch(
-    "https://router.huggingface.co/hf-inference/models/SamLowe/roberta-base-go_emotions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${huggingFaceApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ inputs }),
-    }
-  );
+  const segments = chunks.map((chunk, index) => {
+    const preds = predictions[index] ?? predictions[0] ?? [];
+    const top = preds.length > 0
+      ? preds.reduce((best, curr) => curr.score > best.score ? curr : best)
+      : { label: "neutral", score: 0.5 };
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Hugging Face sentiment request failed (${response.status}): ${body}`);
-  }
+    const weight = EMOTION_WEIGHTS[top.label] ?? 0.5;
+    const emotion_intensity = parseFloat((top.score * weight).toFixed(4));
 
-  const raw = (await response.json()) as unknown;
-  if (!Array.isArray(raw)) {
-    throw new Error("Unexpected Hugging Face sentiment response shape.");
-  }
+    return {
+      start_sec: chunk.start_sec,
+      end_sec: chunk.end_sec,
+      text: chunk.text,
+      emotion: top.label,
+      emotion_intensity,
+    };
+  });
 
-  type HFClassification = { label: string; score: number };
-  const normalized: HFClassification[][] = Array.isArray(raw[0])
-    ? (raw as HFClassification[][])
-    : [raw as HFClassification[]];
-
-  if (normalized.length === 0 || normalized.every((entry) => !Array.isArray(entry) || entry.length === 0)) {
-    throw new Error("Hugging Face sentiment response was empty.");
-  }
-
-const EMOTION_WEIGHTS: Record<string, number> = {
-  neutral: 0.1,   
-  approval: 0.2,
-  realization: 0.6,
-  curiosity: 0.7,
-  nervousness: 0.7,
-  surprise: 0.8,
-  anger: 0.8,
-  fear: 0.9,
-  excitement: 0.9
-};
-
-const segments = chunks.map((chunk, index) => {
-  const predictions = normalized[index] ?? normalized[0];
-  const top = predictions.reduce((best, current) =>
-    current.score > best.score ? current : best
-  );
-
-  const baseWeight = EMOTION_WEIGHTS[top.label] ?? 0.5;
-  const calculatedIntensity = top.score * baseWeight;
-
-  return {
-    start_sec: chunk.start_sec,
-    end_sec: chunk.end_sec,
-    text: chunk.text,
-    emotion: top.label,
-    emotion_intensity: parseFloat(calculatedIntensity.toFixed(4)), 
-  };
-});
-
-  const result: SentimentAnalysis = { segments };
-
-  SentimentAnalysisSchema.parse(result);
-  return result;
+  return SentimentAnalysisSchema.parse({ segments });
 }
 
 // ─── Placeholder: Agent 2 — Hook & Cliffhanger Evaluator ────────────────────
@@ -303,8 +339,30 @@ const segments = chunks.map((chunk, index) => {
  * TODO: Replace with Fast LLM call (gpt-4o-mini / gemini-1.5-flash).
  */
 export async function evaluateEpisodeHooks(
-  scriptContent: string
+  scriptContent: string,
+  segmentData?: SentimentAnalysis["segments"]
 ): Promise<HookCliffhanger> {
+  // If segment data is provided and looks healthy, skip the LLM call entirely
+  if (segmentData && segmentData.length > 0) {
+    const firstSegment = segmentData[0];
+    const lastTwoSegments = segmentData.slice(-2);
+    const avgLastIntensity = lastTwoSegments.reduce((s, seg) => s + seg.emotion_intensity, 0) / lastTwoSegments.length;
+
+    // Hook is strong (first segment high intensity) AND cliffhanger is strong (last segments high intensity)
+    if (firstSegment.emotion_intensity > 0.5 && avgLastIntensity > 0.5) {
+      // Return a good score without burning an LLM call
+      return {
+        hook: { pattern: "strong_opening", novelty_score: firstSegment.emotion_intensity },
+        cliffhanger: {
+          open_loops: 2,
+          threat_level: avgLastIntensity,
+          logic: "High emotional intensity detected at episode end via NLP.",
+        },
+      };
+    }
+  }
+
+  // Only call LLM when the episode actually has structural problems
   const plain = stripHtml(scriptContent);
   const opening = takeWords(plain, 25);
   const closing = takeWords(plain, 40, true);
@@ -313,12 +371,23 @@ export async function evaluateEpisodeHooks(
     model: fastModel,
     schema: HookCliffhangerSchema,
     prompt: [
-      "Assess the hook and cliffhanger strength of this episode script.",
-      "Focus only on the opening (~10s) and closing (~15s) excerpts provided.",
-      `Opening excerpt:\n${opening}`,
-      `Closing excerpt:\n${closing}`,
-      "Return a hook pattern and novelty_score plus cliffhanger open_loops, threat_level (0-1), and brief logic rationale.",
-    ].join("\n\n"),
+      "You are a script analyst for 90-second vertical video episodes.",
+      "Assess hook and cliffhanger strength. Be specific about what works or fails.",
+      "",
+      `Opening (first ~10 seconds):\n${opening}`,
+      "",
+      `Closing (last ~15 seconds):\n${closing}`,
+      "",
+      "Scoring guide:",
+      "novelty_score 0.8-1.0: Creates immediate life-or-death curiosity, impossible to swipe away",
+      "novelty_score 0.5-0.79: Moderate interest, viewer might stay",
+      "novelty_score 0.0-0.49: Exposition dump, weak opening, viewer will leave",
+      "threat_level 0.8-1.0: Devastating cliffhanger, physically painful to stop",
+      "threat_level 0.5-0.79: Good tension, viewer wants next episode",
+      "threat_level 0.0-0.49: Weak exit, episode feels complete — kills series momentum",
+      "",
+      "Return honest scores. Vague or inflated scores are useless.",
+    ].join("\n"),
   });
 
   return HookCliffhangerSchema.parse(object);
@@ -333,26 +402,34 @@ export async function evaluateEpisodeHooks(
 export async function suggestOptimizations(
   segments: SentimentAnalysis["segments"]
 ): Promise<OptimizationCritic> {
-  const highRiskSegments = segments.filter((seg) => seg.emotion_intensity < 0.15);
+  // Identify problem segments: neutral emotion OR very low intensity
+  // Use the same logic as math-engine's drop detection
+  const problemSegments = segments.filter(
+    seg => seg.emotion === "neutral" || seg.emotion_intensity < 0.25
+  );
 
-  if (highRiskSegments.length === 0) {
-    const empty: OptimizationCritic = {
-      issues: [],
-      optimization_suggestions: [],
-    };
-    OptimizationCriticSchema.parse(empty);
-    return empty;
+  // Skip LLM call if no real problems detected — saves tokens
+  if (problemSegments.length === 0) {
+    return { issues: [], optimization_suggestions: [] };
   }
 
+  // Only send problem segments to the LLM, not the full array
   const { object } = await generateObject({
     model: fastModel,
     schema: OptimizationCriticSchema,
     prompt: [
-      "Identify engagement risks in these episode segments and propose fixes.",
-      "Only consider segments where emotion_intensity < 0.15.",
-      `Segments (JSON):\n${JSON.stringify(highRiskSegments, null, 2)}`,
-      "Return issues with type, target_time_sec, severity plus matching optimization_suggestions that are concise and actionable. Each optimization_suggestion MUST include a reason (1–2 sentences explaining WHY this moment risks viewer drop-off) and a suggestion (a concrete action to fix it).",
-    ].join("\n\n"),
+      "You are a script doctor for 90-second vertical short-form episodes.",
+      "These segments have been flagged as retention risks by NLP analysis.",
+      "Propose surgical fixes — specific insertions or single-sentence changes, NOT full rewrites.",
+      "",
+      "FLAGGED SEGMENTS:",
+      JSON.stringify(problemSegments, null, 2),
+      "",
+      "For each issue: name the type (emotional_flatline, pacing_drag, weak_stakes, missing_tension),",
+      "the target_time_sec, and severity (low/medium/high).",
+      "For each suggestion: give a concrete actionable fix at the target_time_sec.",
+      "Maximum 3 suggestions. Prioritize by impact.",
+    ].join("\n"),
   });
 
   return OptimizationCriticSchema.parse(object);

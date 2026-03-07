@@ -54,10 +54,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Run AI analysis pipelines
-    const [sentiment, hooks] = await Promise.all([
-      analyzeEpisodeSentiment(episode.scriptContent),
-      evaluateEpisodeHooks(episode.scriptContent),
-    ]);
+    // Run NLP first — its output determines whether we need the LLM hook evaluator
+    const sentiment = await analyzeEpisodeSentiment(episode.scriptContent);
+
+    // Pass segment data to hook evaluator — it will skip the LLM if NLP shows healthy scores
+    const hooks = await evaluateEpisodeHooks(episode.scriptContent, sentiment.segments);
 
     // 3. Run math engine on sentiment data
     const threatLevel = hooks.cliffhanger.threat_level;

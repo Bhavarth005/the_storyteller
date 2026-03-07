@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { AlertTriangle, Info, Sparkles } from "lucide-react";
+import { AlertTriangle, Info, Sparkles, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -24,23 +24,119 @@ type ScriptSegment = {
 type OptimizationSuggestion = {
   segment_index?: number | null;
   target_time_sec?: number | null;
-  /** AI-generated explanation of WHY this segment risks drop-off. */
   reason?: string;
-  /** Seed-data field — same semantic as reason. */
   issue?: string;
   suggestion: string;
   priority?: string;
 };
 
-type ActiveSegment = ScriptSegment & {
-  severity: RetentionSeverity;
+type HoverState = {
+  segment: ScriptSegment;
   segmentIndex: number;
+  severity: RetentionSeverity;
+  reason: string | null;
+  suggestion: string | null;
+  anchorTop: number;
+  anchorLeft: number;
 };
 
 function segmentSeverity(segment: ScriptSegment): RetentionSeverity | null {
   if (segment.drop_probability > 0.7) return "risk";
   if (segment.drop_probability > 0.4) return "warning";
   return null;
+}
+
+function normalizeTextForMatching(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function buildNormalizedDocTextMap(editor: NonNullable<ReturnType<typeof useEditor>>) {
+  let normalizedText = "";
+  const normalizedIndexToDocPos: number[] = [];
+  let previousWasSpace = true;
+
+  editor.state.doc.descendants((node, pos) => {
+    if (!node.isText || !node.text) return;
+
+    for (let i = 0; i < node.text.length; i++) {
+      const char = node.text[i];
+      const isSpace = /\s/.test(char);
+      if (isSpace) {
+        if (previousWasSpace) continue;
+        normalizedText += " ";
+        normalizedIndexToDocPos.push(pos + i);
+        previousWasSpace = true;
+        continue;
+      }
+
+      normalizedText += char;
+      normalizedIndexToDocPos.push(pos + i);
+      previousWasSpace = false;
+    }
+
+    if (!previousWasSpace) {
+      normalizedText += " ";
+      normalizedIndexToDocPos.push(pos + node.text.length - 1);
+      previousWasSpace = true;
+    }
+  });
+
+  normalizedText = normalizedText.trimEnd();
+  if (normalizedIndexToDocPos.length > normalizedText.length) {
+    normalizedIndexToDocPos.splice(normalizedText.length);
+  }
+
+  return { normalizedText, normalizedIndexToDocPos };
+}
+
+function findSegmentTextMatchIndex(
+  normalizedDoc: string,
+  normalizedSegmentText: string,
+  predictedStart: number,
+): number {
+  if (!normalizedSegmentText) return -1;
+
+  const docLength = normalizedDoc.length;
+  const windowRadius = Math.max(120, Math.floor(docLength * 0.08));
+  const windowStart = Math.max(0, predictedStart - windowRadius);
+  const windowEnd = Math.min(docLength, predictedStart + windowRadius);
+
+  const windowText = normalizedDoc.slice(windowStart, windowEnd);
+  const localIndex = windowText.indexOf(normalizedSegmentText);
+  if (localIndex >= 0) return windowStart + localIndex;
+
+  return normalizedDoc.indexOf(normalizedSegmentText);
+}
+
+function computeWordChunkRanges(
+  normalizedText: string,
+  normalizedIndexToDocPos: number[],
+  segmentCount: number,
+): Array<{ fromDocPos: number; toDocPos: number }> {
+  const textLen = normalizedText.length;
+  if (textLen === 0 || segmentCount === 0) return [];
+
+  const chunkSize = textLen / segmentCount;
+  const ranges: Array<{ fromDocPos: number; toDocPos: number }> = [];
+
+  for (let i = 0; i < segmentCount; i++) {
+    const startIdx = Math.round(i * chunkSize);
+    const endIdx = Math.round((i + 1) * chunkSize);
+
+    let adjStart = startIdx;
+    while (adjStart > 0 && normalizedText[adjStart - 1] !== " ") adjStart--;
+    let adjEnd = endIdx;
+    while (adjEnd < textLen && normalizedText[adjEnd] !== " ") adjEnd++;
+
+    const from = normalizedIndexToDocPos[Math.max(0, adjStart)];
+    const to = normalizedIndexToDocPos[Math.max(0, Math.min(textLen - 1, adjEnd - 1))];
+
+    if (from != null && to != null) {
+      ranges.push({ fromDocPos: from, toDocPos: to + 1 });
+    }
+  }
+
+  return ranges;
 }
 
 export function ScriptEditor({
@@ -80,223 +176,282 @@ export function ScriptEditor({
     },
   });
 
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isOverTooltipRef = useRef(false);
+  const [hoverState, setHoverState] = useState<HoverState | null>(null);
+
+  const suggestionsBySegment = useMemo(() => {
+    const map = new Map<number, OptimizationSuggestion>();
+    for (const item of optimizationSuggestions ?? []) {
+      if (item.segment_index == null || !Number.isInteger(item.segment_index)) continue;
+      if (!map.has(item.segment_index)) map.set(item.segment_index, item);
+    }
+    return map;
+  }, [optimizationSuggestions]);
+
   useEffect(() => {
     if (!editor || !segments || segments.length === 0) return;
 
-    // Build a flat text string and a parallel array mapping each character
-    // index back to its ProseMirror document position.
-    //
-    // A synthetic space is inserted wherever there is a position gap between
-    // consecutive text nodes — which always indicates a block boundary (e.g.
-    // between two <p> tags).  This mirrors the single-space join that
-    // buildWordChunks uses when splitting the plain-text script, so indexOf
-    // finds exact matches even in multi-paragraph documents.
-    let docText = "";
-    const charToDocPos: number[] = [];
-    editor.state.doc.descendants((node, pos) => {
-      if (node.isText && node.text) {
-        if (charToDocPos.length > 0) {
-          const prevPos = charToDocPos[charToDocPos.length - 1];
-          if (pos > prevPos + 1) {
-            // Gap between text nodes = block boundary: insert a normalising space.
-            docText += " ";
-            charToDocPos.push(pos);
-          }
-        }
-        for (let i = 0; i < node.text.length; i++) {
-          docText += node.text[i];
-          charToDocPos.push(pos + i);
-        }
-      }
-    });
+    const markType = editor.state.schema.marks.retentionHighlight;
+    if (!markType) return;
 
-    const docSize = editor.state.doc.content.size;
+    const { normalizedText, normalizedIndexToDocPos } = buildNormalizedDocTextMap(editor);
+    const docLength = normalizedText.length;
+    if (docLength === 0 || normalizedIndexToDocPos.length === 0) return;
 
-    // Clear all existing highlights.
-    editor
-      .chain()
-      .setTextSelection({ from: 1, to: docSize })
-      .unsetMark("retentionHighlight")
-      .run();
+    const wordChunkRanges = computeWordChunkRanges(normalizedText, normalizedIndexToDocPos, segments.length);
 
-    let cursor = 0;
+    let tr = editor.state.tr.removeMark(1, editor.state.doc.content.size, markType);
+
     for (const [segmentIndex, seg] of segments.entries()) {
-      // Normalise whitespace in the stored segment text — this handles any
-      // HTML-stripped whitespace artefacts from earlier analysis runs.
-      const segText = seg.text.replace(/\s+/g, " ").trim();
-      const idx = docText.indexOf(segText, cursor);
+      const severity = segmentSeverity(seg);
+      if (!severity) continue;
 
-      // Always advance cursor to maintain ordering, even for non-highlighted segs.
-      if (idx >= 0) cursor = idx + segText.length;
+      const normalizedSegmentText = normalizeTextForMatching(seg.text);
+      const chunkHint = wordChunkRanges[segmentIndex];
+      const hintStartIdx = chunkHint
+        ? normalizedIndexToDocPos.indexOf(chunkHint.fromDocPos)
+        : 0;
+      const matchedStart = findSegmentTextMatchIndex(
+        normalizedText,
+        normalizedSegmentText,
+        Math.max(0, hintStartIdx),
+      );
 
-      const sev = segmentSeverity(seg);
-      if (!sev || idx < 0) continue;
+      let from: number;
+      let to: number;
 
-      const from = charToDocPos[idx];
-      const lastIdx = idx + segText.length - 1;
-      const to = (charToDocPos[lastIdx] ?? charToDocPos[charToDocPos.length - 1]) + 1;
-      if (from == null || from < 1) continue;
-
-      editor
-        .chain()
-        .setTextSelection({ from, to })
-        .setMark("retentionHighlight", { severity: sev, segmentIndex })
-        .run();
-    }
-
-    // Deselect — move cursor to document end.
-    editor.commands.setTextSelection(docSize);
-  }, [editor, segments]);
-
-  // ── Active segment + tooltip state ──────────────────────────────────────
-  // NOTE: activeSegment is driven by selection events, not useMemo, so that
-  // it updates whenever the user moves the cursor to a different highlight.
-  const [activeSegment, setActiveSegment] = useState<ActiveSegment | null>(null);
-  const editorWrapperRef = useRef<HTMLDivElement>(null);
-  const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
-  const [showTooltip, setShowTooltip] = useState(false);
-
-  const updateTooltipState = useCallback(() => {
-    if (!editor || !editorWrapperRef.current) {
-      setShowTooltip(false);
-      return;
-    }
-    if (!editor.isActive("retentionHighlight")) {
-      setShowTooltip(false);
-      setActiveSegment(null);
-      return;
-    }
-    const { view } = editor;
-    const { from, to } = view.state.selection;
-    // Only show for a plain cursor (no text-range selection active).
-    if (from !== to) {
-      setShowTooltip(false);
-      return;
-    }
-    // Resolve segment from mark attributes at cursor position.
-    const attrs = editor.getAttributes("retentionHighlight") as {
-      severity?: RetentionSeverity;
-      segmentIndex?: number | null;
-    };
-    if (attrs.segmentIndex != null && segments) {
-      const seg = segments[attrs.segmentIndex];
-      if (seg) {
-        setActiveSegment({
-          ...seg,
-          severity: attrs.severity ?? segmentSeverity(seg) ?? "warning",
-          segmentIndex: attrs.segmentIndex,
-        });
+      if (matchedStart >= 0) {
+        const endIdx = Math.min(docLength, matchedStart + Math.max(1, normalizedSegmentText.length));
+        const fromDoc = normalizedIndexToDocPos[matchedStart];
+        const toDoc = normalizedIndexToDocPos[Math.min(docLength - 1, endIdx - 1)];
+        if (fromDoc == null || toDoc == null) continue;
+        from = Math.max(1, fromDoc);
+        to = Math.max(from + 1, toDoc + 1);
+      } else if (chunkHint) {
+        from = Math.max(1, chunkHint.fromDocPos);
+        to = Math.max(from + 1, chunkHint.toDocPos);
+      } else {
+        continue;
       }
+
+      const suggestion = suggestionsBySegment.get(segmentIndex);
+      const reason =
+        suggestion?.reason ??
+        suggestion?.issue ??
+        (severity === "risk"
+          ? `Drop probability ${Math.round(seg.drop_probability * 100)}% in ${seg.start_sec}s-${seg.end_sec}s.`
+          : `Moderate retention risk in ${seg.start_sec}s-${seg.end_sec}s due to low emotional variance.`);
+      const suggestionText = suggestion?.suggestion ?? explanation?.optimization_rationale ?? null;
+
+      tr = tr.addMark(
+        from,
+        to,
+        markType.create({
+          severity,
+          segmentIndex,
+          reason,
+          suggestion: suggestionText,
+        }),
+      );
     }
-    const coords = view.coordsAtPos(from);
-    const wrapperRect = editorWrapperRef.current.getBoundingClientRect();
-    setTooltipPos({
-      top: coords.top - wrapperRect.top - 8,
-      left: coords.left - wrapperRect.left,
-    });
-    setShowTooltip(true);
-  }, [editor, segments]);
+
+    editor.view.dispatch(tr);
+    setHoverState(null);
+  }, [editor, segments, suggestionsBySegment, explanation?.optimization_rationale]);
+
+  const scheduleClose = useCallback(() => {
+    if (closeTimeoutRef.current) clearTimeout(closeTimeoutRef.current);
+    closeTimeoutRef.current = setTimeout(() => {
+      if (!isOverTooltipRef.current) setHoverState(null);
+    }, 200);
+  }, []);
+
+  const cancelClose = useCallback(() => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleMouseMove = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (!segments || segments.length === 0 || !wrapperRef.current) {
+        scheduleClose();
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+      const mark = target?.closest("mark[data-retention-highlight]") as HTMLElement | null;
+      if (!mark) {
+        scheduleClose();
+        return;
+      }
+
+      cancelClose();
+
+      const segmentIndex = Number(mark.dataset.segmentIndex);
+      if (!Number.isInteger(segmentIndex) || segmentIndex < 0 || segmentIndex >= segments.length) {
+        scheduleClose();
+        return;
+      }
+
+      const wrapperRect = wrapperRef.current.getBoundingClientRect();
+      const markRect = mark.getBoundingClientRect();
+      const anchorLeft = markRect.left + markRect.width / 2 - wrapperRect.left;
+      const anchorTop = markRect.top - wrapperRect.top;
+
+      setHoverState((prev) => {
+        if (prev?.segmentIndex === segmentIndex) return prev;
+        return {
+          segment: segments[segmentIndex],
+          segmentIndex,
+          severity: (mark.dataset.severity as RetentionSeverity) ?? segmentSeverity(segments[segmentIndex]) ?? "warning",
+          reason: mark.dataset.reason ?? null,
+          suggestion: mark.dataset.suggestion ?? null,
+          anchorTop,
+          anchorLeft,
+        };
+      });
+    },
+    [segments, scheduleClose, cancelClose],
+  );
 
   useEffect(() => {
-    if (!editor) return;
-    editor.on("selectionUpdate", updateTooltipState);
-    editor.on("transaction", updateTooltipState);
-    return () => {
-      editor.off("selectionUpdate", updateTooltipState);
-      editor.off("transaction", updateTooltipState);
+    if (!hoverState) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (tooltipRef.current?.contains(target)) return;
+      if (
+        wrapperRef.current?.contains(target) &&
+        (event.target as HTMLElement)?.closest("mark[data-retention-highlight]")
+      ) {
+        return;
+      }
+      setHoverState(null);
     };
-  }, [editor, updateTooltipState]);
 
-  // ── Find matching optimization suggestion for the active segment ─────────
-  const activeSuggestion = useMemo(() => {
-    if (!activeSegment || !optimizationSuggestions) return null;
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [hoverState]);
+
+  const hoveredSuggestion = useMemo(() => {
+    if (!hoverState) return null;
     return (
-      optimizationSuggestions.find(
+      suggestionsBySegment.get(hoverState.segmentIndex) ??
+      optimizationSuggestions?.find(
         (s) =>
-          s.segment_index === activeSegment.segmentIndex ||
-          (s.target_time_sec != null &&
-            s.target_time_sec >= activeSegment.start_sec &&
-            s.target_time_sec < activeSegment.end_sec),
-      ) ?? null
+          s.target_time_sec != null &&
+          s.target_time_sec >= hoverState.segment.start_sec &&
+          s.target_time_sec < hoverState.segment.end_sec,
+      ) ??
+      null
     );
-  }, [activeSegment, optimizationSuggestions]);
+  }, [hoverState, optimizationSuggestions, suggestionsBySegment]);
 
-  const reasonText = activeSegment
-    ? (activeSuggestion?.reason ??
-        activeSuggestion?.issue ??
-        (activeSegment.severity === "risk"
-          ? `Drop probability ${Math.round(activeSegment.drop_probability * 100)}% — sustained ${activeSegment.emotion} emotion at low intensity signals viewer disengagement.`
-          : `Emotional flatline risk — ${activeSegment.emotion} tone may not hold audience attention through this segment.`))
-    : null;
+  const reasonText =
+    hoverState?.reason ??
+    hoveredSuggestion?.reason ??
+    hoveredSuggestion?.issue ??
+    explanation?.retention_risk_reason ??
+    null;
+
+  const suggestionText =
+    hoverState?.suggestion ??
+    hoveredSuggestion?.suggestion ??
+    explanation?.optimization_rationale ??
+    null;
 
   return (
-    <div ref={editorWrapperRef} className={cn("relative", className)}>
-      {/* Floating tooltip */}
-      {showTooltip && activeSegment && tooltipPos && (
+    <div
+      ref={wrapperRef}
+      className={cn("relative", className)}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => {
+        if (!isOverTooltipRef.current) scheduleClose();
+      }}
+    >
+      {hoverState && (
         <div
           className="absolute z-50"
-          style={{ top: tooltipPos.top, left: tooltipPos.left, transform: "translate(-50%, -100%)" }}
+          style={{
+            top: hoverState.anchorTop - 8,
+            left: hoverState.anchorLeft,
+            transform: "translate(-50%, -100%)",
+          }}
+          onMouseEnter={() => {
+            isOverTooltipRef.current = true;
+            cancelClose();
+          }}
+          onMouseLeave={() => {
+            isOverTooltipRef.current = false;
+            scheduleClose();
+          }}
         >
-          <Card className="w-[min(420px,calc(100vw-2rem))] shadow-lg">
+          <Card ref={tooltipRef} className="pointer-events-auto w-[min(420px,calc(100vw-2rem))] shadow-lg">
             <CardHeader className="py-3">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                {activeSegment.severity === "risk" ? (
-                  <AlertTriangle className="h-4 w-4 text-destructive" />
-                ) : (
-                  <Info className="h-4 w-4 text-yellow-600" />
-                )}
-                Retention insight
+              <CardTitle className="flex items-center justify-between gap-2 text-sm">
+                <span className="flex items-center gap-2">
+                  {hoverState.severity === "risk" ? (
+                    <AlertTriangle className="h-4 w-4 text-destructive" />
+                  ) : (
+                    <Info className="h-4 w-4 text-yellow-600" />
+                  )}
+                  Retention insight
+                </span>
+                <button
+                  type="button"
+                  className="rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => setHoverState(null)}
+                  aria-label="Close insight"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 pb-4 text-sm">
-              {/* Stats row */}
+            <CardContent className="max-h-[300px] space-y-3 overflow-y-auto pb-4 pr-1 text-sm">
               <div className="space-y-1 text-muted-foreground">
                 <div>
                   <span className="font-medium text-foreground">Window:</span>{" "}
-                  {activeSegment.start_sec}s–{activeSegment.end_sec}s •{" "}
-                  <span className="font-medium text-foreground">Drop:</span>{" "}
-                  {Math.round(activeSegment.drop_probability * 100)}%
+                  {hoverState.segment.start_sec}s-{hoverState.segment.end_sec}s <span className="font-medium text-foreground">Drop:</span>{" "}
+                  {Math.round(hoverState.segment.drop_probability * 100)}%
                 </div>
                 <div>
                   <span className="font-medium text-foreground">Emotion:</span>{" "}
-                  {activeSegment.emotion}
+                  {hoverState.segment.emotion}
                 </div>
               </div>
 
-              {/* Per-segment reason */}
-              <div>
-                <div className="mb-1 font-medium text-foreground">Why</div>
-                <div className="rounded-md border bg-muted/30 px-3 py-2 text-muted-foreground">
-                  {reasonText}
-                </div>
-              </div>
-
-              {/* Per-segment improvement suggestion */}
-              {activeSuggestion?.suggestion ? (
+              {reasonText ? (
                 <div>
-                  <div className="mb-1 font-medium text-foreground">Fix</div>
+                  <div className="mb-1 font-medium text-foreground">Why</div>
                   <div className="rounded-md border bg-muted/30 px-3 py-2 text-muted-foreground">
-                    {activeSuggestion.suggestion}
-                  </div>
-                </div>
-              ) : explanation?.optimization_rationale ? (
-                <div>
-                  <div className="mb-1 font-medium text-foreground">Suggestion</div>
-                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-muted-foreground">
-                    {explanation.optimization_rationale}
+                    {reasonText}
                   </div>
                 </div>
               ) : null}
 
-              <div className="flex items-center justify-end gap-2 pt-1">
+              {suggestionText ? (
+                <div>
+                  <div className="mb-1 font-medium text-foreground">Fix</div>
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-muted-foreground">
+                    {suggestionText}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex items-center justify-end pt-1">
                 <Button
                   size="sm"
                   variant="secondary"
                   disabled={!onApplyAiFix || isApplyingAiFix}
-                  onClick={() => onApplyAiFix?.(activeSegment)}
+                  onClick={() => onApplyAiFix?.(hoverState.segment)}
                 >
                   <Sparkles className={isApplyingAiFix ? "animate-spin" : ""} />
-                  {isApplyingAiFix ? "Applying…" : "Apply AI Fix"}
+                  {isApplyingAiFix ? "Applying..." : "Apply AI Fix"}
                 </Button>
               </div>
             </CardContent>
@@ -308,4 +463,3 @@ export function ScriptEditor({
     </div>
   );
 }
-

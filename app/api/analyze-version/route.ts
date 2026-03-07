@@ -25,10 +25,11 @@ const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 // Extracted single-episode analysis logic (shared with /api/analyze-episode)
 async function analyzeOneEpisode(episodeRow: typeof episodes.$inferSelect) {
-  const [sentiment, hooks] = await Promise.all([
-    analyzeEpisodeSentiment(episodeRow.scriptContent),
-    evaluateEpisodeHooks(episodeRow.scriptContent),
-  ]);
+  // Run NLP first — its output determines whether we need the LLM hook evaluator
+  const sentiment = await analyzeEpisodeSentiment(episodeRow.scriptContent);
+
+  // Pass segment data to hook evaluator — it will skip the LLM if NLP shows healthy scores
+  const hooks = await evaluateEpisodeHooks(episodeRow.scriptContent, sentiment.segments);
 
   const threatLevel = hooks.cliffhanger.threat_level;
   const enrichedSegments = detectRetentionRisks(sentiment.segments, threatLevel);
@@ -122,8 +123,9 @@ export async function POST(request: NextRequest) {
           const result = await analyzeOneEpisode(ep);
           results.push(result);
           
-          // Wait 2 seconds between episodes to prevent 429 Rate Limits
-          await sleep(2000); 
+          // Rate limit defense: gemini-2.0-flash free tier = 10 RPM
+          // Each episode: up to 2 LLM calls. 7s gap keeps us safely under the limit.
+          await sleep(7000); 
         }
 
         // 4. Aggregate scores for version_analysis

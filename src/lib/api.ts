@@ -294,7 +294,12 @@ export function regenerateEpisode(body: RegenerateEpisodeRequest) {
 // ---- UI & Demo Dashboards
 export type TensionCurveResponse = {
   episode_id: string;
-  curve: Array<{ time_sec: number; tension: number }>;
+  curve: Array<{
+    time_sec?: number;
+    tension?: number;
+    time?: number;
+    tension_score?: number;
+  }>;
 };
 
 export function getEpisodeTensionCurve(episodeId: string) {

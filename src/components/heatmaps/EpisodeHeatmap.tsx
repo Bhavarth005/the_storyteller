@@ -22,14 +22,33 @@ export function EpisodeHeatmap({
   className,
   onSelectSegment,
 }: {
-  segments: ScriptSegment[];
+  segments?: ScriptSegment[] | null;
   className?: string;
   onSelectSegment?: (segment: ScriptSegment) => void;
 }) {
-  const total = segments.reduce(
-    (sum, s) => sum + Math.max(0, s.end_sec - s.start_sec),
-    0,
-  );
+  const safeSegments = segments ?? [];
+  const normalizedSegments = Array.from({ length: 9 }, (_, idx) => {
+    const existing = safeSegments[idx];
+    if (existing) {
+      return {
+        ...existing,
+        start_sec: idx * 10,
+        end_sec: (idx + 1) * 10,
+      };
+    }
+
+    return {
+      start_sec: idx * 10,
+      end_sec: (idx + 1) * 10,
+      text: "",
+      emotion: "neutral",
+      drop_probability: 0,
+      engagement_score: 0,
+    } satisfies ScriptSegment;
+  });
+
+  const segmentCount = normalizedSegments.length;
+  const widthPct = segmentCount > 0 ? 100 / segmentCount : 0;
 
   return (
     <div
@@ -40,22 +59,21 @@ export function EpisodeHeatmap({
       role="list"
       aria-label="Episode retention heatmap"
     >
-      {segments.map((s, idx) => {
-        const duration = Math.max(0, s.end_sec - s.start_sec);
-        const widthPct = total > 0 ? (duration / total) * 100 : 0;
-
+      {normalizedSegments.map((s, idx) => {
         return (
           <button
             key={`${s.start_sec}-${s.end_sec}-${idx}`}
             type="button"
             role="listitem"
-            aria-label={`Segment ${s.start_sec}-${s.end_sec}s`}
+            aria-label={`Segment ${idx * 10}-${(idx + 1) * 10}s`}
             className={cn(
               "h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               segmentColor(s),
             )}
             style={{ width: `${widthPct}%` }}
-            onClick={() => onSelectSegment?.(s)}
+            onClick={() => {
+              if (safeSegments[idx]) onSelectSegment?.(safeSegments[idx]);
+            }}
           />
         );
       })}

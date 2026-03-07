@@ -31,6 +31,22 @@ export const RetentionHighlight = Mark.create({
           return { "data-segment-index": String(attributes.segmentIndex) };
         },
       },
+      reason: {
+        default: null as string | null,
+        parseHTML: (element) => element.getAttribute("data-reason"),
+        renderHTML: (attributes) => {
+          if (!attributes.reason) return {};
+          return { "data-reason": String(attributes.reason) };
+        },
+      },
+      suggestion: {
+        default: null as string | null,
+        parseHTML: (element) => element.getAttribute("data-suggestion"),
+        renderHTML: (attributes) => {
+          if (!attributes.suggestion) return {};
+          return { "data-suggestion": String(attributes.suggestion) };
+        },
+      },
     };
   },
 

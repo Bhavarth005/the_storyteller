@@ -31,9 +31,9 @@ export interface RadarMetrics {
 
 const SMA_WINDOW = 3;
 const DEFAULT_THREAT_LEVEL = 0.5;
-const TENSION_LOW_THRESHOLD = 0.3;
-const CONSECUTIVE_DROP_COUNT = 2; // 2 segments = 20 seconds
-const HIGH_DROP_PROBABILITY = 0.75;
+const TENSION_LOW_THRESHOLD = 0.35;  // slightly more sensitive
+const CONSECUTIVE_DROP_COUNT = 1;    // flag single low-tension segments too
+const HIGH_DROP_PROBABILITY = 0.72;
 const NORMAL_DROP_PROBABILITY = 0.1;
 
 // ─── SMA Smoothing ──────────────────────────────────────────────────────────
@@ -76,12 +76,19 @@ export function calculateTensionCurve(
   const rawIntensities = segments.map((s) => s.emotion_intensity);
   const smoothed = simpleMovingAverage(rawIntensities);
 
-  return segments.map((seg, i) => ({
-    time_sec: seg.start_sec,
-    tension: parseFloat(
-      (smoothed[i] * 0.7 + threatLevel * 0.3).toFixed(4)
-    ),
-  }));
+  return segments.map((seg, i) => {
+    // PRD formula: Tension = (SMA_emotion * 0.5) + (threat_level * 0.3) + (information_gap * 0.2)
+    // information_gap is approximated as the inverse of the segment's relative position
+    // (later segments carry more unresolved information — it builds toward the end)
+    const positionFactor = segments.length > 1 ? i / (segments.length - 1) : 0.5;
+    const informationGap = 0.3 + positionFactor * 0.5; // grows from 0.3 to 0.8 across the episode
+    return {
+      time_sec: seg.start_sec,
+      tension: parseFloat(
+        (smoothed[i] * 0.5 + threatLevel * 0.3 + informationGap * 0.2).toFixed(4)
+      ),
+    };
+  });
 }
 
 // ─── Retention Risk Detection ────────────────────────────────────────────────
@@ -127,7 +134,7 @@ export function detectRetentionRisks(
       for (let j = i; j > i - consecutiveLowCount; j--) {
         enriched[j].drop_probability = HIGH_DROP_PROBABILITY;
         enriched[j].engagement_score = parseFloat(
-          (enriched[j].tension_score * 0.5).toFixed(4) // penalized engagement
+          Math.max(0, enriched[j].tension_score - 0.2).toFixed(4)
         );
       }
     }
@@ -195,4 +202,53 @@ export function calculateVersionDelta(
   }
 
   return deltas;
+}
+
+// ─── Flatline Zone Detection ─────────────────────────────────────────────────
+
+export interface FlatlineZone {
+  start_sec: number;
+  end_sec: number;
+  duration_sec: number;
+}
+
+/**
+ * Returns time ranges where emotion_velocity is consistently low —
+ * indicating viewer boredom zones. Used by the /explain endpoint.
+ * Emotion velocity: V_t = |intensity_t - intensity_{t-1}|
+ */
+export function detectFlatlineZones(
+  segments: RawSegment[],
+  velocityThreshold = 0.08,
+  minDurationSec = 10
+): FlatlineZone[] {
+  if (segments.length < 2) return [];
+
+  const zones: FlatlineZone[] = [];
+  let flatStart: number | null = null;
+
+  for (let i = 1; i < segments.length; i++) {
+    const velocity = Math.abs(segments[i].emotion_intensity - segments[i - 1].emotion_intensity);
+    const isFlat = velocity < velocityThreshold && segments[i].emotion_intensity < 0.3;
+
+    if (isFlat && flatStart === null) {
+      flatStart = segments[i - 1].start_sec;
+    } else if (!isFlat && flatStart !== null) {
+      const duration = segments[i - 1].end_sec - flatStart;
+      if (duration >= minDurationSec) {
+        zones.push({ start_sec: flatStart, end_sec: segments[i - 1].end_sec, duration_sec: duration });
+      }
+      flatStart = null;
+    }
+  }
+
+  if (flatStart !== null) {
+    const last = segments[segments.length - 1];
+    const duration = last.end_sec - flatStart;
+    if (duration >= minDurationSec) {
+      zones.push({ start_sec: flatStart, end_sec: last.end_sec, duration_sec: duration });
+    }
+  }
+
+  return zones;
 }

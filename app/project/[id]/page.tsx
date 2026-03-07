@@ -101,9 +101,9 @@ export default function SeriesOverviewPage({ params }: { params: Promise<{ id: s
     if (!vd?.version_analysis?.radar_metrics) return []
     const rm = vd.version_analysis.radar_metrics
     return [
-      { subject: "Hook Strength", value: Math.round(rm.hook_strength * 100), fullMark: 100 },
-      { subject: "Suspense Density", value: Math.round(rm.suspense_density * 100), fullMark: 100 },
-      { subject: "Retention Stability", value: Math.round(rm.retention_stability * 100), fullMark: 100 },
+      { subject: "Hook Strength", value: Math.round((rm.hook_strength ?? 0) * 100), fullMark: 100 },
+      { subject: "Retention Stability", value: Math.round((rm.retention_stability ?? 0) * 100), fullMark: 100 },
+      { subject: "Suspense Density", value: Math.round((rm.suspense_density ?? 0) * 100), fullMark: 100 },
     ]
   }, [vd])
 
@@ -174,7 +174,13 @@ export default function SeriesOverviewPage({ params }: { params: Promise<{ id: s
             {radarData.length > 0 ? (
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="70%">
+                  <RadarChart
+                    data={radarData}
+                    cx="50%"
+                    cy="50%"
+                    margin={{ top: 20, right: 30, bottom: 20, left: 30 }}
+                    outerRadius={80}
+                  >
                     <PolarGrid stroke="rgba(255,255,255,0.1)" />
                     <PolarAngleAxis
                       dataKey="subject"
