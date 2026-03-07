@@ -3,6 +3,7 @@ import { db } from "@/src/db";
 import { projects, versions } from "@/src/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
+import { requireAuth } from "@/src/lib/require-auth";
 
 const rollbackSchema = z.object({
   project_id: z.uuid(),
@@ -12,6 +13,9 @@ const rollbackSchema = z.object({
 // POST /api/rollback — Revert workspace to a previous version
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+
     const body = await request.json();
     const parsed = rollbackSchema.safeParse(body);
     if (!parsed.success) {

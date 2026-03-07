@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 import { eq } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 
 const client = postgres(process.env.DATABASE_URL!);
 const db = drizzle(client, { schema });
@@ -28,7 +29,7 @@ const EPISODE_TITLES = [
 function generateSegments(scriptContent: string) {
   // Split script into ~10-second blocks (roughly by sentences)
   const sentences = scriptContent.match(/[^.!?]+[.!?]+/g) || [scriptContent];
-  const segmentCount = Math.min(9, Math.max(3, Math.ceil(sentences.length / 2)));
+  const segmentCount = 9; // Always 9 segments = 90 seconds total
   const secondsPerSegment = 10;
 
   const emotionPool = [
@@ -56,8 +57,8 @@ function generateSegments(scriptContent: string) {
       sentenceIdx += 2;
 
       const intensity = curve[i] ?? 0.5;
-      // SMA-like smoothing approximation for drop_probability
-      const dropProb = intensity < 0.4 ? 0.65 : intensity < 0.5 ? 0.35 : 0.05 + (1 - intensity) * 0.2;
+      // Realistic drop probabilities: low intensity = high drop risk
+      const dropProb = intensity < 0.45 ? 0.75 : intensity < 0.55 ? 0.55 : 0.05 + (1 - intensity) * 0.25;
 
       segments.push({
         start_sec: i * secondsPerSegment,
@@ -155,6 +156,18 @@ const GLOBAL_CHARACTERS = [
 
 async function seed() {
   console.log("🌱 Seeding database...");
+
+  // 0. Create seed user
+  const SEED_EMAIL = "admin@example.com";
+  const SEED_PASSWORD = "password123";
+  const passwordHash = await bcrypt.hash(SEED_PASSWORD, 10);
+
+  await db
+    .insert(schema.users)
+    .values({ email: SEED_EMAIL, name: "Admin", passwordHash })
+    .onConflictDoNothing();
+
+  console.log(`  ✅ Seed user: ${SEED_EMAIL} / ${SEED_PASSWORD}`);
 
   const segmentGenerator = generateSegments(SCRIPTS[0]);
 

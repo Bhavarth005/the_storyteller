@@ -9,10 +9,12 @@ import {
   Plus, 
   Film,
   FolderOpen,
-  Sparkles
+  Sparkles,
+  LogOut
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getProjects } from "@/src/lib/api"
+import { signOut } from "next-auth/react"
 
 const mainNavItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
@@ -104,6 +106,17 @@ export function AppSidebar() {
           </div>
         )}
       </nav>
+
+      {/* Logout */}
+      <div className="p-4 border-t border-white/5">
+        <button
+          onClick={() => signOut({ callbackUrl: "/" })}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-200 w-full"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign Out
+        </button>
+      </div>
     </aside>
   )
 }

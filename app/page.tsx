@@ -1,13 +1,48 @@
 "use client"
 
+import { Suspense, useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Sparkles, Zap, LineChart, Film } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import Link from "next/link"
+import { AuthModal } from "@/components/auth-modal"
+import { useSession } from "next-auth/react"
+import { useRouter, useSearchParams } from "next/navigation"
 
-export default function LandingPage() {
+function LandingContent() {
+  const { status } = useSession()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [showAuthModal, setShowAuthModal] = useState(false)
+
+  // Auto-open auth modal when redirected here by middleware (callbackUrl present)
+  useEffect(() => {
+    const callbackUrl = searchParams.get("callbackUrl")
+    if (callbackUrl && status === "unauthenticated") {
+      setShowAuthModal(true)
+    }
+  }, [searchParams, status])
+
+  // If already authenticated, redirect to dashboard
+  useEffect(() => {
+    if (status === "authenticated") {
+      const callbackUrl = searchParams.get("callbackUrl")
+      router.push(callbackUrl || "/dashboard")
+    }
+  }, [status, router, searchParams])
+
+  function handleNavigate() {
+    if (status === "authenticated") {
+      router.push("/dashboard")
+    } else {
+      setShowAuthModal(true)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#07080B] noise-bg overflow-hidden">
+      {/* Auth Modal */}
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
@@ -20,9 +55,9 @@ export default function LandingPage() {
           <Button
             variant="ghost"
             className="text-muted-foreground hover:text-foreground transition-colors"
-            asChild
+            onClick={handleNavigate}
           >
-            <Link href="/dashboard">Go to Dashboard</Link>
+            {status === "authenticated" ? "Go to Dashboard" : "Sign In"}
           </Button>
         </div>
       </nav>
@@ -59,9 +94,9 @@ export default function LandingPage() {
               <Button
                 size="lg"
                 className="bg-cyan-500 hover:bg-cyan-400 text-black font-medium px-8 py-6 text-base glow-cyan transition-all duration-300"
-                asChild
+                onClick={handleNavigate}
               >
-                <Link href="/dashboard">Start Creating</Link>
+                Start Creating
               </Button>
             </div>
           </motion.div>
@@ -108,5 +143,13 @@ export default function LandingPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense>
+      <LandingContent />
+    </Suspense>
   )
 }

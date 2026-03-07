@@ -166,3 +166,39 @@
   border-radius: 2px;
   padding: 0 2px;
 }
+
+/* Retention highlight marks (Tiptap) */
+mark.retention-risk {
+  background-color: rgba(239, 68, 68, 0.35);
+  color: #fecaca;
+  border-radius: 2px;
+  padding: 1px 3px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+mark.retention-risk:hover {
+  background-color: rgba(239, 68, 68, 0.5);
+}
+
+mark.retention-warning {
+  background-color: rgba(234, 179, 8, 0.3);
+  color: #fef08a;
+  border-radius: 2px;
+  padding: 1px 3px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+mark.retention-warning:hover {
+  background-color: rgba(234, 179, 8, 0.45);
+}
+
+/* Tiptap ProseMirror base */
+.ProseMirror:focus {
+  outline: none;
+}
+
+.ProseMirror p {
+  margin: 0.5em 0;
+}

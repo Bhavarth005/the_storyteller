@@ -4,10 +4,10 @@ import { useMemo, useState } from "react"
 import { motion } from "framer-motion"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Sparkles, ChevronLeft, ChevronRight, Loader2, Wand2 } from "lucide-react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { ArrowLeft, Sparkles, ChevronLeft, ChevronRight, Loader2, Wand2, Save, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { use } from "react"
+import { use, useEffect, useRef } from "react"
 import { toast } from "sonner"
 
 import {
@@ -16,8 +16,10 @@ import {
   getEpisodeTensionCurve,
   getEpisodeExplain,
   analyzeEpisode,
+  patchEpisode,
   type EpisodeDetail,
 } from "@/src/lib/api"
+import { useProjectStore } from "@/src/store/useProjectStore"
 import { useRegenerateEpisode } from "@/src/hooks/useRegenerateEpisode"
 import { ScriptEditor } from "@/src/components/editor/ScriptEditor"
 import { EpisodeHeatmap } from "@/src/components/heatmaps/EpisodeHeatmap"
@@ -38,6 +40,12 @@ export default function EpisodeWorkspacePage({
     queryKey: ["project", id],
     queryFn: () => getProject(id),
   })
+
+  // Populate the Zustand store when project data arrives
+  const setProjectData = useProjectStore((s) => s.setProjectData)
+  useEffect(() => {
+    if (project) setProjectData(project)
+  }, [project, setProjectData])
 
   const episodes = project?.version_data?.episodes ?? []
   const currentEp = episodes.find((e) => e.episode_number === episodeNumber)
@@ -81,7 +89,7 @@ export default function EpisodeWorkspacePage({
 
       // Run analysis on the new episode
       toast.info("Analyzing regenerated episode…")
-      await analyzeEpisode({ version_id: res.new_version_id, episode_id: res.new_episode_id })
+      await analyzeEpisode({ episode_id: res.new_episode_id })
 
       // Invalidate caches and redirect to new version's episode
       queryClient.invalidateQueries({ queryKey: ["project", id] })
@@ -102,13 +110,50 @@ export default function EpisodeWorkspacePage({
   // ---------- Derived ----------
   const segments = episode?.script_segments ?? []
   const hookMetrics = episode?.hook_and_cliffhanger_metrics
-  const optimizationSuggestions = useMemo(() => {
+  type OptimizationSuggestion = {
+    segment_index?: number | null
+    target_time_sec?: number | null
+    reason?: string
+    issue?: string
+    suggestion: string
+    priority?: string
+  }
+  const optimizationSuggestions = useMemo((): OptimizationSuggestion[] => {
     const raw = episode?.optimization_suggestions
     if (!Array.isArray(raw)) return []
-    return raw.filter((s): s is string => typeof s === "string")
+    return raw.filter(
+      (s): s is OptimizationSuggestion =>
+        typeof s === "object" && s !== null && typeof (s as Record<string, unknown>).suggestion === "string",
+    )
   }, [episode])
 
   const explanation = explainData?.explanations
+
+  // ---------- Local editable script content ----------
+  const editedContentRef = useRef<string | null>(null)
+  const hasEdits = editedContentRef.current !== null && editedContentRef.current !== episode?.script_content
+
+  // ---------- Save & Reanalyze ----------
+  const [isSaving, setIsSaving] = useState(false)
+
+  async function handleSaveAndReanalyze() {
+    if (!episodeId || !editedContentRef.current) return
+    setIsSaving(true)
+    try {
+      await patchEpisode(episodeId, { script_content: editedContentRef.current })
+      toast.info("Saved! Running analysis…")
+      await analyzeEpisode({ episode_id: episodeId })
+      editedContentRef.current = null
+      queryClient.invalidateQueries({ queryKey: ["episode", episodeId] })
+      queryClient.invalidateQueries({ queryKey: ["tensionCurve", episodeId] })
+      queryClient.invalidateQueries({ queryKey: ["episodeExplain", episodeId] })
+      toast.success("Analysis complete")
+    } catch {
+      toast.error("Save or analysis failed")
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   // ---------- Navigation helpers ----------
   const prevEpNumber = episodeNumber > 1 ? episodeNumber - 1 : null
@@ -210,7 +255,9 @@ export default function EpisodeWorkspacePage({
         <div className="flex-[7] border-r border-white/10 overflow-auto">
           <div className="p-8 max-w-3xl mx-auto">
             <ScriptEditor
+              key={episodeId}
               content={episode.script_content}
+              onChange={(html) => { editedContentRef.current = html }}
               segments={segments}
               optimizationSuggestions={optimizationSuggestions}
               explanation={explanation}
@@ -317,12 +364,24 @@ export default function EpisodeWorkspacePage({
               </div>
             )}
 
-            {/* Regenerate Button */}
-            <div className="glass-card rounded-lg p-4">
+            {/* Save & Reanalyze / Regenerate Buttons */}
+            <div className="glass-card rounded-lg p-4 space-y-3">
+              <Button
+                className="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-medium glow-cyan gap-2"
+                onClick={handleSaveAndReanalyze}
+                disabled={isSaving || isRegenerating}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+                {isSaving ? "Analyzing…" : "Save & Reanalyze"}
+              </Button>
               <Button
                 className="w-full bg-purple-500 hover:bg-purple-400 text-white glow-purple gap-2"
                 onClick={handleApplyAiFix}
-                disabled={isRegenerating}
+                disabled={isRegenerating || isSaving}
               >
                 {isRegenerating ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -343,7 +402,7 @@ export default function EpisodeWorkspacePage({
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-4 h-4 rounded bg-yellow-400/40" />
-                  <span className="text-xs text-muted-foreground">Emotional Flatline – Neutral emotion, low engagement</span>
+                  <span className="text-xs text-muted-foreground">Moderate Risk – Elevated drop probability (&gt;40%)</span>
                 </div>
               </div>
             </div>

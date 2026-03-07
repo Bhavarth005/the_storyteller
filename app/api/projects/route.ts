@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/src/db";
 import { projects } from "@/src/db/schema";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
+import { requireAuth } from "@/src/lib/require-auth";
 
 // GET /api/projects — Fetch lightweight list of all projects
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "20", 10)));
@@ -22,10 +26,11 @@ export async function GET(request: NextRequest) {
           updatedAt: projects.updatedAt,
         })
         .from(projects)
+        .where(eq(projects.userId, auth.userId))
         .orderBy(desc(projects.updatedAt))
         .limit(limit)
         .offset(offset),
-      db.$count(projects),
+      db.$count(projects, eq(projects.userId, auth.userId)),
     ]);
 
     return NextResponse.json({

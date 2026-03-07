@@ -4,6 +4,7 @@ import { projects, versions, episodes } from "@/src/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod/v4";
 import { generateEpisodeScript } from "@/src/lib/ai-orchestrator";
+import { requireAuth } from "@/src/lib/require-auth";
 
 const regenerateEpisodeSchema = z.object({
   project_id: z.uuid(),
@@ -15,6 +16,9 @@ const regenerateEpisodeSchema = z.object({
 // POST /api/regenerate-episode — Agentic rewrite of a specific episode, creates new version
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+
     const body = await request.json();
     const parsed = regenerateEpisodeSchema.safeParse(body);
     if (!parsed.success) {

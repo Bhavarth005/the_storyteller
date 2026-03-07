@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
 import { db } from "@/src/db";
 import { episodes } from "@/src/db/schema";
 import { eq } from "drizzle-orm";
@@ -12,6 +13,7 @@ import {
   calculateTensionCurve,
   detectRetentionRisks,
 } from "@/src/lib/math-engine";
+import { authOptions } from "@/src/lib/auth";
 
 const analyzeEpisodeSchema = z.object({
   episode_id: z.uuid(),
@@ -20,6 +22,14 @@ const analyzeEpisodeSchema = z.object({
 // POST /api/analyze-episode — Analyze a single episode (NLP + LLM + math)
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: { code: "UNAUTHORIZED", message: "You must be signed in." } },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const parsed = analyzeEpisodeSchema.safeParse(body);
     if (!parsed.success) {
@@ -75,10 +85,19 @@ export async function POST(request: NextRequest) {
       threat_level: hooks.cliffhanger.threat_level,
     };
 
-    const optimizationSuggestions = optimizations.optimization_suggestions.map((s) => ({
-      target_time_sec: s.target_time_sec,
-      suggestion: s.suggestion,
-    }));
+    // Map each suggestion to a segment_index by matching target_time_sec to the
+    // segment whose [start_sec, end_sec) window contains that timestamp.
+    const optimizationSuggestions = optimizations.optimization_suggestions.map((s) => {
+      const segIdx = enrichedSegments.findIndex(
+        (seg) => s.target_time_sec >= seg.start_sec && s.target_time_sec < seg.end_sec,
+      );
+      return {
+        segment_index: segIdx >= 0 ? segIdx : null,
+        target_time_sec: s.target_time_sec,
+        reason: s.reason,
+        suggestion: s.suggestion,
+      };
+    });
 
     // 6. Update the episode in DB
     await db

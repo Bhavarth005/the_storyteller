@@ -12,9 +12,8 @@ export type ScriptSegment = {
 };
 
 function segmentColor(segment: ScriptSegment) {
-  const duration = Math.max(0, segment.end_sec - segment.start_sec);
   if (segment.drop_probability > 0.7) return "bg-red-500/70";
-  if (segment.emotion === "neutral" && duration >= 15) return "bg-yellow-400/70";
+  if (segment.drop_probability > 0.4) return "bg-yellow-400/70";
   return "bg-emerald-500/70";
 }
 

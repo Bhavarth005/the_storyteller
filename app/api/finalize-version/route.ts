@@ -3,6 +3,7 @@ import { db } from "@/src/db";
 import { versions, versionAnalysis } from "@/src/db/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod/v4";
+import { requireAuth } from "@/src/lib/require-auth";
 
 const finalizeVersionSchema = z.object({
   version_id: z.uuid(),
@@ -12,6 +13,9 @@ const finalizeVersionSchema = z.object({
 // POST /api/finalize-version — Mark a version as complete, optionally update commit message
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+
     const body = await request.json();
     const parsed = finalizeVersionSchema.safeParse(body);
     if (!parsed.success) {

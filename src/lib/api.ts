@@ -39,7 +39,11 @@ async function fetchJson<T>(
     },
   });
 
-  if (res.ok) return (await res.json()) as T;
+  if (res.ok) {
+    // Handle 204 No Content (e.g. DELETE responses)
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  }
 
   const payload = (await parseJsonSafely(res)) as ApiErrorPayload | null;
   const message =
@@ -192,6 +196,15 @@ export function getEpisode(episodeId: string) {
   return fetchJson<EpisodeDetail>(`/api/episodes/${episodeId}`);
 }
 
+export type PatchEpisodeRequest = { script_content: string };
+
+export function patchEpisode(episodeId: string, body: PatchEpisodeRequest) {
+  return fetchJson<{ id: string; updated: boolean }>(`/api/episodes/${episodeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 export type EpisodeExplainResponse = {
   episode_id: string;
   explanations: {
@@ -210,6 +223,7 @@ export type GenerateCoreRequest = {
   title: string;
   input_type: "idea" | "draft";
   raw_story: string;
+  episode_count?: number;
 };
 
 export type GenerateCoreResponse = {

@@ -2,6 +2,21 @@ import { generateObject } from "ai";
 import { z } from "zod/v4";
 import { fastModel, heavyModel } from "./ai-clients";
 
+// ─── HTML stripping (for HTML-stored script content) ─────────────────────────
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ─── Zod Schemas: AI JSON Contracts ──────────────────────────────────────────
 
 // Agent 0: Story Arc Planner output
@@ -83,6 +98,7 @@ export const OptimizationIssueSchema = z.object({
 
 export const OptimizationSuggestionSchema = z.object({
   target_time_sec: z.number().int().min(0),
+  reason: z.string(),
   suggestion: z.string(),
 });
 
@@ -204,7 +220,7 @@ export async function generateEpisodeScript(
 export async function analyzeEpisodeSentiment(
   scriptContent: string
 ): Promise<SentimentAnalysis> {
-  const chunks = buildWordChunks(scriptContent);
+  const chunks = buildWordChunks(stripHtml(scriptContent));
   const inputs = chunks.map((chunk) => chunk.text);
 
   const huggingFaceApiKey = process.env.HUGGINGFACE_API_KEY;
@@ -289,8 +305,9 @@ const segments = chunks.map((chunk, index) => {
 export async function evaluateEpisodeHooks(
   scriptContent: string
 ): Promise<HookCliffhanger> {
-  const opening = takeWords(scriptContent, 25);
-  const closing = takeWords(scriptContent, 40, true);
+  const plain = stripHtml(scriptContent);
+  const opening = takeWords(plain, 25);
+  const closing = takeWords(plain, 40, true);
 
   const { object } = await generateObject({
     model: fastModel,
@@ -334,7 +351,7 @@ export async function suggestOptimizations(
       "Identify engagement risks in these episode segments and propose fixes.",
       "Only consider segments where emotion_intensity < 0.15.",
       `Segments (JSON):\n${JSON.stringify(highRiskSegments, null, 2)}`,
-      "Return issues with type, target_time_sec, severity plus matching optimization_suggestions that are concise and actionable.",
+      "Return issues with type, target_time_sec, severity plus matching optimization_suggestions that are concise and actionable. Each optimization_suggestion MUST include a reason (1–2 sentences explaining WHY this moment risks viewer drop-off) and a suggestion (a concrete action to fix it).",
     ].join("\n\n"),
   });
 

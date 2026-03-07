@@ -14,6 +14,7 @@ import {
   deriveEngagementScore,
   calculateEmotionalVariance,
 } from "@/src/lib/math-engine";
+import { requireAuth } from "@/src/lib/require-auth";
 
 const analyzeVersionSchema = z.object({
   version_id: z.uuid(),
@@ -66,6 +67,9 @@ async function analyzeOneEpisode(episodeRow: typeof episodes.$inferSelect) {
 // POST /api/analyze-version — Trigger background analysis for all episodes
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth.error) return auth.error;
+
     const body = await request.json();
     const parsed = analyzeVersionSchema.safeParse(body);
     if (!parsed.success) {

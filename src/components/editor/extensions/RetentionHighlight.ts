@@ -42,8 +42,8 @@ export const RetentionHighlight = Mark.create({
     const severity = HTMLAttributes.severity as RetentionSeverity | undefined;
     const cls =
       severity === "risk"
-        ? "bg-red-200 dark:bg-red-500/20"
-        : "bg-yellow-200 dark:bg-yellow-500/20";
+        ? "retention-risk"
+        : "retention-warning";
 
     return [
       "mark",

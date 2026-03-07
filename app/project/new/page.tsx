@@ -16,6 +16,7 @@ import {
   finalizeVersion,
   ApiError,
 } from "@/src/lib/api"
+import { useProjectStore } from "@/src/store/useProjectStore"
 import { toast } from "sonner"
 
 // ---------------------------------------------------------------------------
@@ -65,9 +66,11 @@ async function analyzeWithRetry(episodeId: string): Promise<void> {
 export default function GenesisFlowPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
+  const initFromGenesis = useProjectStore((s) => s.initFromGenesis)
   const [title, setTitle] = useState("")
   const [isFullDraft, setIsFullDraft] = useState(false)
   const [content, setContent] = useState("")
+  const [episodeCount, setEpisodeCount] = useState(8)
 
   // Pipeline state
   const [steps, setSteps] = useState<PipelineStep[]>([])
@@ -114,10 +117,14 @@ export default function GenesisFlowPage() {
         title: title.trim(),
         input_type: isFullDraft ? "draft" : "idea",
         raw_story: content.trim(),
+        episode_count: episodeCount,
       })
 
       const { project_id, version_id, episode_ids } = coreResult
       pipelineRef.current = { projectId: project_id, versionId: version_id, episodeIds: episode_ids }
+
+      // Seed the Zustand store with genesis IDs
+      initFromGenesis(project_id, version_id, episode_ids)
 
       // Build the full step list now that we know episode count
       const fullSteps = buildSteps(episode_ids)
@@ -225,6 +232,26 @@ export default function GenesisFlowPage() {
                 disabled={isBusy}
               />
               <span className="text-sm text-muted-foreground">Full Draft</span>
+            </div>
+          </div>
+
+          {/* Episode Count */}
+          <div className="space-y-3">
+            <Label htmlFor="episodeCount" className="text-sm text-muted-foreground">
+              Number of Episodes
+            </Label>
+            <div className="flex items-center gap-4">
+              <Input
+                id="episodeCount"
+                type="number"
+                min={1}
+                max={20}
+                value={episodeCount}
+                onChange={(e) => setEpisodeCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                className="bg-background/50 border-white/10 focus:border-cyan-400 focus:ring-cyan-400/20 w-24 text-center transition-all"
+                disabled={isBusy}
+              />
+              <span className="text-sm text-muted-foreground">episodes (1–20)</span>
             </div>
           </div>
 

@@ -14,7 +14,7 @@ import {
 import { AlertTriangle, GitBranch, ChevronRight, User, Sparkles, History, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { VersionDiffModal } from "@/components/version-diff-modal"
-import { use } from "react"
+import { use, useEffect } from "react"
 import {
   getProject,
   getProjectVersions,
@@ -22,6 +22,7 @@ import {
   type ProjectDetailEpisode,
   type VersionListItem,
 } from "@/src/lib/api"
+import { useProjectStore } from "@/src/store/useProjectStore"
 
 // Deterministic trait colors by hashing the trait name
 const TRAIT_PALETTE = [
@@ -83,6 +84,12 @@ export default function SeriesOverviewPage({ params }: { params: Promise<{ id: s
     queryFn: () => getProjectVersions(id),
     enabled: !!project,
   })
+
+  // Populate the Zustand store when project data arrives
+  const setProjectData = useProjectStore((s) => s.setProjectData)
+  useEffect(() => {
+    if (project) setProjectData(project)
+  }, [project, setProjectData])
 
   // ---------- Derived data ----------
   const vd = project?.version_data
